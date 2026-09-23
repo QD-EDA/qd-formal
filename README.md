@@ -11,6 +11,21 @@ python3 qd_formal.py preflight /path/to/clean/opentitan /tmp/qd-formal-secded \
 python3 -m unittest discover -s tests -v
 ```
 
+For a separate semantic frontend inventory, run slang 11.0.448 on the same
+clean checkout:
+
+```sh
+python3 slang_inventory.py /path/to/clean/opentitan /tmp/qd-formal-slang \
+  --slang /path/to/slang
+```
+
+This records the raw elaborated AST, diagnostics, command, and hashes. Its
+`semantic_frontend_inventory_ok` result requires the exact eight names, one
+assumption and seven assertions, the bound instance, source locations, clock,
+disable condition, and pinned expression fingerprints. It is a frontend
+inventory only: it does not run a solver or prove any property. An unsupported
+AST shape or mismatch yields `UNKNOWN`.
+
 The checkout must be clean at OpenTitan commit
 `7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19`. The runner writes `result.json`,
 the exact stub, raw stdout/stderr, and source/tool hashes to the evidence
@@ -36,5 +51,6 @@ with `FPV_ON`; it does not modify RTL or DV. Limitations and the artifact
 contract are in [SPEC.md](SPEC.md); planned increments are in
 [ROADMAP.md](ROADMAP.md). The [formal gap audit](FORMAL_GAP_AUDIT.md) and
 [pinned pilot evidence](PILOT_EVIDENCE.md) record what was actually run.
-The only runtime dependency is Python 3's standard
-library and Icarus Verilog. This folder is licensed under Apache-2.0.
+The runtime dependencies are Python 3's standard library and the compiler for
+the chosen command (Icarus Verilog or slang). This folder is licensed under
+Apache-2.0.
