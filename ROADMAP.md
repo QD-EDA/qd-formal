@@ -1,16 +1,22 @@
 # Roadmap
 
 1. **Frontend inventory (this slice):** pinned OpenTitan SECDED closure, clean
-   Icarus stub build, exact eight-name registration check, immutable evidence
+   Icarus stub build, exact eight-name registration check, raw evidence
    files, and fail-closed `UNKNOWN` handling.
 2. **Typed frontend boundary:** extend Icarus elaboration export so each
    supported property has a stable source/bind identity, assert/assume/cover
    role, clock/reset conditions, and typed temporal/expression structure.
 3. **Bounded engine integration:** consume that typed export in a bounded
-   engine; emit per-property bounded result, assumptions, unsupported features,
-   solver trace and a replayable counterexample/cover witness. Validate with
-   planted faults and vacuity/boundary cases; use independent checking and
-   simulator replay. This is a future engine milestone, not delivered here.
+   engine. First target the original OpenTitan `SyndromeCheckReverse_A` under
+   `MaxTwoErrors_M` in `prim_secded_22_16_fpv`: it is a combinational SECDED
+   cone sampled on `clk_i`. Check the zero/one/two-bit error masks against an
+   independent parity implementation, and replay a planted decoder fault
+   through the original bound checker. Emit a per-property bounded result,
+   assumptions, unsupported features, solver trace and replayable witness.
+   Validate vacuity and boundary cases; a bounded result is not unbounded proof.
+   Caliptra SHA-256 `idle_wait_a` is the next candidate after its package
+   elaboration and state-array modeling are supported. This is a future engine
+   milestone, not delivered here.
 4. **Qualification pilot:** after the engine exists, select a named OpenTitan
    lifecycle/debug property and have hardware-policy owners review the property
    mapping and assumptions. SECDED frontend parsing alone is not qualification.
