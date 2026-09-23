@@ -73,6 +73,8 @@ def preflight(root, out, compiler, timeout):
     out.mkdir(parents=True, exist_ok=True)
     stub = out / "opentitan-secded.stub"
     stub.unlink(missing_ok=True)
+    result_path = out / "result.json"
+    result_path.unlink(missing_ok=True)
     argv = [str(compiler), "-g2012", "-gassertions", "-DFPV_ON",
             "-I" + str(root / "hw/ip/prim/rtl"), "-t", "stub"]
     for top in TOPS:
@@ -156,7 +158,7 @@ def preflight(root, out, compiler, timeout):
             report["result"] = "frontend_inventory_ok"
     except (OSError, subprocess.SubprocessError) as error:
         report["failure_reasons"].append(f"preflight could not complete: {error}")
-    (out / "result.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    result_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report
 
 
