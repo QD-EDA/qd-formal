@@ -1,22 +1,44 @@
 # Icarus UVM formal gap audit — 2026-09-23
 
 This audit uses original, pinned chip formal sources without changing application
-RTL or DV. It records compiler compatibility, not proof. The relevant Icarus UVM
-baseline is current `main` at `6fd804a39e803152bd39a3ee4c96b15d30532001`,
-built as a matched compiler/runtime at `/tmp/iverilog-sva-macro-install`.
-`iverilog -V` reports 13.0 devel; the source commit above identifies the build.
-`-t stub` checks parsing and elaboration only.
+RTL or DV. It records compiler compatibility, not proof. The original Icarus
+UVM probes below used source commit
+`6fd804a39e803152bd39a3ee4c96b15d30532001`, built as a matched
+compiler/runtime at `/tmp/iverilog-sva-macro-install`; `iverilog -V` reported
+13.0 devel. Current main is `7943dffd1a426418cd975883753af7cdb2e18e46`; PR
+#342 is based on that revision. In every case, `-t stub` checks parsing and
+elaboration only.
 
 This is a bounded compatibility sample, not a suite-wide formal qualification.
-OpenTitan has many separate FPV targets and Caliptra has formal property trees
-for DOE, ECC, HMAC, SHA-256 and SHA-512. The two closures below were selected
-to expose an active assertion/assumption path and a concrete elaboration blocker.
+OpenTitan has many separate FPV targets, and Caliptra's SHA-256 closure is one
+small part of its formal sources. Pinned Caliptra also includes the Adams Bridge
+formal tree described below; neither this census nor any compile is a proof.
 
-| Original formal target | Current-main result | Next gap |
+| Original formal target | Recorded frontend result | Next gap |
 | --- | --- | --- |
-| [OpenTitan](https://github.com/lowRISC/opentitan/tree/7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19) `lowrisc:fpv:prim_secded_22_16_fpv`, with `FPV_ON` and the real standard macros | Exit 0, empty stderr, eight active `$ivl_register_assertion` records: seven assertions and one assumption. | No proof backend or formal assumption handling exists. Preserve this original file closure as a frontend regression; reject zero active properties. |
-| [Caliptra](https://github.com/chipsalliance/caliptra-rtl/tree/49370266d12cb0c4a8f71b3a0ff7e54ba7d4866e) bound SHA-256 core constraints | Exit 0, empty stderr, two registered assumptions. Stub names are generated `assert_L25_0` and `assert_L30_1`, not the source labels. | Their source identities, roles and resolved semantics must be exported and checked before using them as proof constraints. Simulation assumption diagnostics do not constrain inputs. |
-| Caliptra SHA-256 assertion IP (`fv_sha256_core.sv`), formal package and constraints | Exit 1: `fv_sha256_core_pkg.sv:26` fails to evaluate parameter `K`, an indexed assignment pattern for an unpacked-array typedef. The parser accepts the pattern, but elaboration stops before any of the nine assertions. | Repair or explicitly reject this parameter evaluation, then rerun the unchanged full closure. `idle_wait_a` is a candidate one-cycle property, subject to actual elaboration and assumption review. |
+| [OpenTitan](https://github.com/lowRISC/opentitan/tree/7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19) `lowrisc:fpv:prim_secded_22_16_fpv`, with `FPV_ON` and the real standard macros | Exit 0, empty stderr, eight active `$ivl_register_assertion` records: seven assertions and one assumption. | This one combinational SECDED closure is a frontend regression, not representative of OpenTitan's broader FPV suite. Other pinned sources include liveness and bounded-delay properties, for example [TL-UL](https://github.com/lowRISC/opentitan/blob/7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19/hw/ip/tlul/rtl/tlul_assert.sv#L343) and [OTBN](https://github.com/lowRISC/opentitan/blob/7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19/hw/ip/otbn/rtl/otbn_core.sv#L1331); these are separate sources, not part of the SECDED closure. No proof backend or formal assumption handling exists; reject zero active properties. |
+| [Caliptra](https://github.com/chipsalliance/caliptra-rtl/tree/49370266d12cb0c4a8f71b3a0ff7e54ba7d4866e) bound SHA-256 core constraints | On the prior current-main source, the separate constraints-only probe exited 0 with two generated assumption registrations. | Preserve source identity, role, and resolved semantics before using assumptions as proof constraints. Simulation assumption diagnostics do not constrain inputs. |
+| Caliptra SHA-256 assertion IP (`fv_sha256_core.sv`), formal package and constraints | The earlier current-main build stopped at `fv_sha256_core_pkg.sv:26` while evaluating parameter `K`, before the nine assertions. [Icarus UVM PR #342](https://github.com/dsellerbrock/iverilog-uvm/pull/342) patches this elaboration case. Its head `d1d16aac99d491fa1163e3e45104f58807568f15`, based on current Icarus `7943dffd1a426418cd975883753af7cdb2e18e46`, reports a clean full-closure frontend compile with nine assertions and two assumptions. All six CI checks were pending at this audit update. | This is compile/elaboration evidence only, with no solver behavior, assumption meaning, or property validity established. `idle_wait_a` remains a candidate for the first bounded pilot after typed export and assumption review. |
+
+### Caliptra formal source census
+
+At the pinned Caliptra revision, its Adams Bridge submodule is pinned to
+`b77e3d899e828d626cfc2a0d26a6b5704cc121e0`. Its `formal/` tree contains 74
+SystemVerilog files; a text search finds property declarations in 41 of them.
+This is a source census, not a count of active properties in one elaborated
+closure. The source includes safety assertions, covers, liveness properties
+using `s_eventually`, `disable iff`, `$past`, and `bind` statements that
+connect properties to DUT hierarchy. For example, the pinned
+[compress properties](https://github.com/chipsalliance/adams-bridge/blob/b77e3d899e828d626cfc2a0d26a6b5704cc121e0/formal/fv_compress/fv_compress_top.sv#L519)
+include a `disable iff` safety assertion, a
+[cover property](https://github.com/chipsalliance/adams-bridge/blob/b77e3d899e828d626cfc2a0d26a6b5704cc121e0/formal/fv_compress/fv_compress_top.sv#L615),
+and a [DUT bind](https://github.com/chipsalliance/adams-bridge/blob/b77e3d899e828d626cfc2a0d26a6b5704cc121e0/formal/fv_compress/fv_compress_top.sv#L654); the same file also uses [`$past`](https://github.com/chipsalliance/adams-bridge/blob/b77e3d899e828d626cfc2a0d26a6b5704cc121e0/formal/fv_compress/fv_compress_top.sv#L602).
+The [NTT control properties](https://github.com/chipsalliance/adams-bridge/blob/b77e3d899e828d626cfc2a0d26a6b5704cc121e0/formal/fv_ntt_ctrl/ntt_ctrl_gs_mlkem/ntt_ctrl_gs_mlkem.sv#L701)
+include a liveness assertion. This source census identifies semantic and
+elaboration cases that a small pilot must not silently drop; it is not a claim
+that all 74 files are one compile closure or that these properties were proved.
+The older count of 141 SV files describes a broader Caliptra snapshot and must
+not be read as the Adams Bridge formal-tree count.
 
 The two chip revisions are clean pinned checkouts. The OpenTitan run used:
 
@@ -92,10 +114,37 @@ transition-system proof. A false `assume property` in the matched current-main
 runtime printed two simulation `ERROR` reports and exited **0** after `$finish`, showing
 why successful simulation cannot substitute for formal assumption semantics.
 
-QD Formal should be a separate solver-backed tool with a small Icarus frontend
-export hook that retains property kind, name, bind instance, source, clock,
-disable condition and supported temporal structure before lowering. The first
-backend scope is finite-bound, single-clock, two-state analysis with explicit
-`unsupported` or `unknown` for every unmodeled construct, assumptions as solver
-constraints, and independently replayed counterexample or cover witnesses.
-A bounded no-counterexample result is not unbounded proof or signoff.
+The near-term seam is typed property data alongside elaborated RTL: retain
+property kind, name, bind instance, source, clock, disable condition, and
+temporal structure. Slang's typed JSON AST is an observed option for a
+property sidecar; it still needs mapping to the RTL transition model. The first bounded pilot remains
+OpenTitan `SyndromeCheckReverse_A` under `MaxTwoErrors_M`; Caliptra SHA-256
+`idle_wait_a` is a follow-on candidate. The initial engine scope is finite-bound,
+single-clock, two-state analysis. Every unsupported construct must produce an
+explicit per-construct `UNKNOWN` (or `unsupported`) result; assumptions must
+become solver constraints, and counterexample or cover witnesses must be
+independently replayed. A bounded no-counterexample result is not an unbounded
+proof or signoff.
+
+An observed option for the typed-property sidecar is Slang 11.0.448's
+`--ast-json --ast-json-source-info` on the same pinned OpenTitan and Caliptra
+SHA-256 closures: both returned zero status with no diagnostics, and the JSON
+contained eight typed concurrent assertions for OpenTitan (one assume, seven
+asserts) and eleven for Caliptra SHA-256 (nine asserts, two assumes), with
+property source, instance, clock/disable, expression, and type information.
+AST address fields vary between runs. This is frontend evidence only. A typed
+property sidecar still needs mapping to the elaborated RTL transition model;
+Icarus compatibility checks and independent witness replay remain separate
+gates, and unsupported constructs need per-construct `UNKNOWN` results.
+
+### Backend integration blocker
+
+A read-only probe also found a false-green trap in the OSS Yosys/SBY route.
+With Yosys 0.68+80 `read_slang` and SBY 0.68, the pinned OpenTitan closure selects
+`SYNTHESIS` dummy assertion macros, so SBY sees no checkers and can report PASS
+for an empty property set. With `--single-unit --no-synthesis-define -DFPV_ON`,
+the original `|->` properties instead produce seven unsupported-SVA errors.
+Thus Slang's typed AST is a possible property sidecar, not direct acceptance of
+the source by the OSS proof backend. A useful backend path needs typed property
+lowering, a verified nonempty exact checker roster, and independent Icarus
+frontend/replay checks; anything unmapped remains per-construct `UNKNOWN`.
