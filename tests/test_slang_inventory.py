@@ -42,6 +42,32 @@ def ast():
 
 
 class SlangInventoryTests(unittest.TestCase):
+    def test_expression_hash_strips_only_addressed_type_and_subroutine_references(self):
+        body = {"kind": "Binary", "op": "OverlappedImplication",
+                "left": {"kind": "Simple", "expr": {"kind": "Call",
+                        "type": "123 pkg::result_t", "subroutine": "456 check_value",
+                        "arguments": [{"kind": "NamedValue", "type": "789 pkg::input_t[3:0]",
+                                       "symbol": "111 data_i"}]}},
+                "right": {"kind": "Simple", "expr": {"kind": "IntegerLiteral",
+                         "type": "logic[3:0]", "value": "8'd123"}}}
+        changed_addresses = copy.deepcopy(body)
+        changed_addresses["left"]["expr"].update(type="987 pkg::result_t", subroutine="654 check_value")
+        changed_addresses["left"]["expr"]["arguments"][0].update(
+            type="321 pkg::input_t[3:0]", symbol="222 data_i")
+        self.assertEqual(expression_sha256(body), expression_sha256(changed_addresses))
+
+        for path, value in (("type", "pkg::other_t"), ("subroutine", "other_check")):
+            with self.subTest(field=path):
+                changed = copy.deepcopy(body)
+                changed["left"]["expr"][path] = value
+                self.assertNotEqual(expression_sha256(body), expression_sha256(changed))
+        changed = copy.deepcopy(body)
+        changed["right"]["expr"]["value"] = "8'd124"
+        self.assertNotEqual(expression_sha256(body), expression_sha256(changed))
+        changed = copy.deepcopy(body)
+        changed["left"]["expr"]["type"] = "123pkg::result_t"
+        self.assertNotEqual(expression_sha256(body), expression_sha256(changed))
+
     def test_exact_roster_role_scope_clock_and_disable(self):
         properties = inventory(ast(), FAKE_HASHES)
         self.assertEqual([p["name"] for p in properties], list(EXPECTED))

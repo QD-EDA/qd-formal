@@ -57,9 +57,16 @@ def expression_sha256(node):
         if isinstance(value, list):
             return [stable(item) for item in value]
         if isinstance(value, dict):
-            return {key: symbol(child) if key == "symbol" else stable(child)
-                    for key, child in value.items()
-                    if key != "addr" and not key.startswith("source_")}
+            result = {}
+            for key, child in value.items():
+                if key == "addr" or key.startswith("source_"):
+                    continue
+                if key == "symbol":
+                    child = symbol(child)
+                elif key in ("type", "subroutine") and isinstance(child, str):
+                    child = re.sub(r"^[0-9]+ (?=[A-Za-z_])", "", child)
+                result[key] = stable(child)
+            return result
         return value
 
     return hashlib.sha256(json.dumps(stable(node), sort_keys=True,
