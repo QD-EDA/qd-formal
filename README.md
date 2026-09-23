@@ -1,6 +1,6 @@
 # QD Formal
 
-This initial slice is a fail-closed Icarus frontend inventory for the unchanged
+The first slice is a fail-closed Icarus frontend inventory for the unchanged
 OpenTitan `prim_secded_22_16_fpv` checker closure. It is a compiler gate, **not a
 formal proof** and not a replacement solver. It checks that Icarus exits cleanly
 without diagnostics and registers the exact eight pinned checker names.
@@ -25,6 +25,25 @@ assumption and seven assertions, the bound instance, source locations, clock,
 disable condition, and pinned expression fingerprints. It is a frontend
 inventory only: it does not run a solver or prove any property. An unsupported
 AST shape or mismatch yields `UNKNOWN`.
+
+The first bounded checker uses both inventories on the same clean pin, lowers
+`MaxTwoErrors_M` and `SyndromeCheckReverse_A` from the typed AST, and asks Z3
+about one two-state posedge sample of the unchanged encoder, decoder, and testbench:
+
+```sh
+python3 secded_one_sample.py /path/to/clean/opentitan /tmp/qd-secded-proof \
+  --iverilog /path/to/current-iverilog/bin/iverilog --slang /path/to/slang \
+  --yosys /path/to/yosys --z3 /path/to/z3
+python3 secded_one_sample.py /path/to/clean/opentitan /tmp/qd-secded-fault \
+  --iverilog /path/to/current-iverilog/bin/iverilog --slang /path/to/slang \
+  --yosys /path/to/yosys --z3 /path/to/z3 --scratch-fault
+```
+
+Use fresh evidence directories. The second command mutates only a decoder copy
+inside its evidence directory, obtains a solver witness, and replays that exact
+sample with Icarus and the original bound checker. `one_sample_check_ok` is a
+bounded two-state result, not an unbounded proof or a four-state SVA proof.
+See [ONE_SAMPLE_EVIDENCE.md](ONE_SAMPLE_EVIDENCE.md) for the actual pinned run.
 
 The checkout must be clean at OpenTitan commit
 `7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19`. The runner writes `result.json`,
@@ -51,6 +70,7 @@ with `FPV_ON`; it does not modify RTL or DV. Limitations and the artifact
 contract are in [SPEC.md](SPEC.md); planned increments are in
 [ROADMAP.md](ROADMAP.md). The [formal gap audit](FORMAL_GAP_AUDIT.md) and
 [pinned pilot evidence](PILOT_EVIDENCE.md) record what was actually run.
-The runtime dependencies are Python 3's standard library and the compiler for
-the chosen command (Icarus Verilog or slang). This folder is licensed under
-Apache-2.0.
+The inventories need Python 3's standard library and their chosen compiler
+(Icarus Verilog or slang). The one-sample checker also needs Yosys with
+`read_slang`, Z3, and the matching `vvp` runtime for scratch witness replay.
+This folder is licensed under Apache-2.0.
