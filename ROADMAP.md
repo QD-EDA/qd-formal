@@ -19,19 +19,23 @@
    checker, and retains raw commands and hashes. The repeated pinned result is
    one two-state sample, not unbounded or four-state proof. See
    [ONE_SAMPLE_EVIDENCE.md](ONE_SAMPLE_EVIDENCE.md).
-4. **Transition model and lifecycle/debug pilot (next):** first investigate the
+4. **Transition slice, then lifecycle/debug pilot (next):** first investigate the
    original `rv_dm_dmi_gate` `LcHwDebugEnSetRev1_A` assertion: retained debug
    permission may rise only after strap sampling. Its companion `Rev0_A`
    checks prior synchronized lifecycle authorization. Their two-sample
-   transition semantics permit the documented NDM reset retention. Require a
-   clean typed-property inventory, reset-grounded reachable-state model,
+   transition semantics permit the documented NDM reset retention. The pinned
+   Earlgrey top defaults `RvDmUseDmiInterface=0`, so this isolated gate is an
+   RV_DM DV/alternate configuration, not the default chip's debug path. Require
+   a clean typed-property inventory, reset-grounded reachable-state model,
    nonvacuous rise and retained-state covers, and independent replay through
    the original checker. The current isolated replay triggers upstream
    `AssertConnected_A` because its parent alert connection is absent; it is
    UNKNOWN until that connection is present. The broader `rv_dm` bound checker
    needs separate full-RTL elaboration and explicit policy assumptions; its
-   current Icarus stub compile aborts. Upstream policy is an interim oracle;
-   hardware-policy review is required for qualification.
+   current installed Icarus stub compile aborts. For the default Earlgrey
+   qualification pilot, use the original pinmux strap-sampling assertion and
+   trace retained permission through its RV_DM connection. Upstream policy is
+   an interim oracle; hardware-policy review is required for qualification.
 5. **Broader formal coverage:** Caliptra SHA-256 `idle_wait_a` checks the next
    clock's state and register arrays, so it requires a reset-grounded transition
    model and sampled-history semantics. Add only the SVA, clock, memory and
