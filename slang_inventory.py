@@ -212,7 +212,7 @@ def run(root, out, compiler, timeout):
         process = captured(argv, root, timeout, out / "stdout.raw", out / "stderr.raw")
         report["exit_status"] = process.returncode
         if process.returncode or process.stderr or process.stdout != SUCCESS_STDOUT:
-            raise ValueError("slang returned nonzero or emitted diagnostics")
+            raise ValueError("slang exit or output differs from clean zero-warning build")
         ast_path = out / "ast.raw.json"
         report["ast"]["sha256"] = sha256(ast_path)
         report["properties"] = inventory(json.loads(ast_path.read_text()))
