@@ -47,10 +47,35 @@ stub and its run-specific hash remain available for inspection.
 
 ## Explicit unsupported cases
 
-This slice does not emit a solver model or typed property AST, does not solve
+The original frontend slice does not emit a solver model or typed property AST, does not solve
 assertions/assumptions/covers, and does not validate bind resolution beyond
 this pinned elaborated closure. It does not establish X semantics, reset
 assumptions, clock fairness, vacuity, unreachable states, induction, multiple
 clock behavior, or unbounded safety. It does not use Icarus simulation or its
-randomization-oriented Z3 hooks as a formal engine. A later engine needs a
-typed elaboration export and must independently validate generated witnesses.
+randomization-oriented Z3 hooks as a formal engine.
+
+## One-sample bounded checker
+
+`secded_one_sample.py` requires both inventories to pass on the same clean
+OpenTitan pin with identical source hashes. It requires slang 11.0.448, the
+exact bound instance, roles, expression fingerprints, positive clock edge, and
+reset disable. Its narrow lowerer accepts only the typed AST shapes of
+`MaxTwoErrors_M` and `SyndromeCheckReverse_A`; anything else is `UNKNOWN`.
+
+The generated equation and the unchanged encoder/decoder/testbench are read by
+Yosys `read_slang`. Direct Z3 queries require: no satisfying bad sample;
+satisfying antecedent, zero-error, and two-error samples; an impossible
+three-error sample under the assumption; and a possible three-error sample
+without it. The separate `--scratch-fault` run requires a satisfying bad sample;
+Icarus replays that exact witness with the original checker and bind, confirms
+all eight registrations, no assertion failures on unchanged RTL, and a named
+`SyndromeCheckReverse_A` failure on the mutation. The mutant never changes the
+pinned checkout.
+
+`one_sample_check_ok` means the direct SMT bad query is `unsat` under the
+stated two-state, one-sample mapping. The checker does not establish unbounded
+behavior, four-state equivalence, reset sequencing, or the other six asserted
+properties. `yosys-smtbmc` is not used: its exported assertion for this harness
+is constant true, so its `PASSED` result would be vacuous. Every command,
+stream, solver query, model, mapping, source/tool hash, and tool version is
+retained in the external evidence directory. Unsupported output is `UNKNOWN`.
