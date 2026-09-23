@@ -29,5 +29,7 @@ This proves only that this pinned Icarus frontend build registered the expected
 checkers for the unchanged OpenTitan closure. The stub does not establish each
 checker’s assert/assume/cover role, temporal meaning, solver constraint, or proof
 result. No SAT/SMT query, counterexample, replay, or production qualification
-was performed. Caliptra's complete SHA-256 assertion IP remains blocked at
-formal-package parameter elaboration; see [FORMAL_GAP_AUDIT.md](FORMAL_GAP_AUDIT.md).
+was performed. Caliptra's full SHA-256 assertion closure now compiles on the
+unmerged Icarus UVM PR #342 branch with nine assertions and two assumptions;
+this remains frontend-only evidence and its CI was pending when audited. See
+[FORMAL_GAP_AUDIT.md](FORMAL_GAP_AUDIT.md).
