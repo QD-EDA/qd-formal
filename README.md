@@ -1,9 +1,10 @@
 # QD Formal
 
-The first slice is a fail-closed Icarus frontend inventory for the unchanged
-OpenTitan `prim_secded_22_16_fpv` checker closure. It is a compiler gate, **not a
-formal proof** and not a replacement solver. It checks that Icarus exits cleanly
-without diagnostics and registers the exact eight pinned checker names.
+QD Formal combines a fail-closed Icarus frontend inventory, a separate typed
+slang property inventory, and one bounded SECDED check on the unchanged
+OpenTitan `prim_secded_22_16_fpv` closure. The Icarus inventory is a compiler
+gate, **not a formal proof**: it checks that Icarus exits cleanly without
+diagnostics and registers the exact eight pinned checker names.
 
 ```sh
 python3 qd_formal.py preflight /path/to/clean/opentitan /tmp/qd-formal-secded \

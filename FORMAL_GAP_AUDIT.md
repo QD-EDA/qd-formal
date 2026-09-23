@@ -1,5 +1,13 @@
 # Icarus UVM formal gap audit — 2026-09-23
 
+Status update: [Icarus UVM PR #342](https://github.com/dsellerbrock/iverilog-uvm/pull/342)
+was merged at `7d6f0a8dd97a4c206ab5887aff735caa76ed50ba` before five of its six
+platform CI jobs completed. The Caliptra SHA-256 full-closure result below is
+frontend elaboration only. QD Formal subsequently added a real one-sample
+OpenTitan SECDED Z3 check with exact-witness Icarus replay, described in
+[ONE_SAMPLE_EVIDENCE.md](ONE_SAMPLE_EVIDENCE.md). Caliptra SHA-256 `idle_wait_a`
+and OpenTitan lifecycle/debug remain unproved.
+
 This audit uses original, pinned chip formal sources without changing application
 RTL or DV. It records compiler compatibility, not proof. The original Icarus
 UVM probes below used source commit
