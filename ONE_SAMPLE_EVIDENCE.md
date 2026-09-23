@@ -45,6 +45,9 @@ All nine source hashes and raw commands/streams are in each evidence directory.
 
 The real proof command took 5.17 seconds wall time; the fault command took
 0.52 seconds. Peak memory was not measured, and no ≤2 GiB claim is made.
+After tightening replay diagnostics, fresh runs at
+`/tmp/qd-secded-pr-proof-review` and `/tmp/qd-secded-pr-fault-review` returned
+the same query results and named fault replay (5.26 and 0.53 seconds wall time).
 The result covers one two-state combinational posedge sample under the pinned
 assumption. It does not establish unbounded safety, four-state SVA semantics,
 reset sequencing, or any other assertion. `yosys-smtbmc PASSED` is excluded:

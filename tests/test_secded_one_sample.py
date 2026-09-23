@@ -102,6 +102,7 @@ class OneSampleTests(unittest.TestCase):
             tool.write_text("fake compiler")
             tool.with_name("vvp").write_text("fake runtime")
             calls = []
+            good_output = b"SAMPLE syndrome=11\n[ASSERT FAILED] Other_A\n"
 
             def captured(argv, cwd, out, name, timeout, allow_stderr=False):
                 calls.append((name, argv))
@@ -111,9 +112,14 @@ class OneSampleTests(unittest.TestCase):
                 if name == "replay-stub":
                     (out / "replay.stub").write_text("registered")
                 return {"vvp-version": b"Icarus runtime 13\n",
-                        "replay-good-run": b"SAMPLE syndrome=11\n[ASSERT FAILED] Other_A\n",
+                        "replay-good-run": good_output,
                         "replay-fault-run": b"[ASSERT FAILED] SyndromeCheckReverse_A\nSAMPLE syndrome=00\n"}.get(name, b"")
 
+            with patch("secded_one_sample.capture", side_effect=captured), \
+                 patch("secded_one_sample.registered_identities", return_value=EXPECTED):
+                with self.assertRaisesRegex(ValueError, "bound Icarus"):
+                    replay_witness(base, base, tool, {"data_i": 0x09f4, "error_inject_i": 3}, 5)
+            good_output = b"SAMPLE syndrome=11\nERROR: unrelated runtime diagnostic\n"
             with patch("secded_one_sample.capture", side_effect=captured), \
                  patch("secded_one_sample.registered_identities", return_value=EXPECTED):
                 with self.assertRaisesRegex(ValueError, "bound Icarus"):

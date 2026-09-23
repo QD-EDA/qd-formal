@@ -207,6 +207,9 @@ def replay_witness(root, out, iverilog, witness, timeout):
     bad = re.search(r"SAMPLE syndrome=([0-9a-fA-F]+)", outputs["fault"])
     require(good and bad and int(good.group(1), 16) != 0 and int(bad.group(1), 16) == 0
             and "[ASSERT FAILED]" not in outputs["good"]
+            and "ERROR:" not in outputs["good"]
+            and "WARNING:" not in outputs["good"]
+            and "WARNING:" not in outputs["fault"]
             and "[ASSERT FAILED] SyndromeCheckReverse_A" in outputs["fault"],
             "bound Icarus witness replay disagrees with SMT or checker")
     return {"good_syndrome": good.group(1), "fault_syndrome": bad.group(1),
