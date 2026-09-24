@@ -87,4 +87,11 @@ for the exact EDAM input, solver queries, Icarus witness replay and limits.
 The runner also checks three directed strap/reset timing cases against the
 original Icarus Rev1 assertion; these establish observed two-state checker
 behavior for those traces only.
+
+The same pinned runner accepts `--property LcHwDebugEnSetRev0_A` for the
+companion lifecycle authorization check. It asks whether retained debug
+permission can rise when the prior synchronized lifecycle enable is not On.
+The QD-only fault bypasses lifecycle gating while retaining strap gating;
+the exact solver witness is replayed through the original Icarus Rev0 checker.
+See [PINMUX_REV0_BOUNDED_EVIDENCE.md](PINMUX_REV0_BOUNDED_EVIDENCE.md).
 This folder is licensed under Apache-2.0.

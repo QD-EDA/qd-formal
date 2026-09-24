@@ -41,8 +41,13 @@
    Rev1 is now recorded with reset grounding, all-input bad queries,
    nonvacuous rise, and Icarus sample replay. It is not exhaustive original
    SV/SVA equivalence, a complete upstream FPV run, or a chip policy proof.
+   The companion Rev0 check uses the same pinned model to test prior sampled
+   lifecycle authorization and replays a lifecycle-bypass fault through the
+   original Icarus checker. It remains a bounded two-state result; downstream
+   RV_DM behavior is still UNKNOWN.
    See [the sampler frontend evidence](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md).
    See [the bounded Rev1 evidence](PINMUX_REV1_BOUNDED_EVIDENCE.md).
+   See [the bounded Rev0 evidence](PINMUX_REV0_BOUNDED_EVIDENCE.md).
    Upstream policy is an interim oracle; hardware-policy review is required
    for qualification.
 5. **Broader formal coverage:** Caliptra SHA-256 `idle_wait_a` checks the next

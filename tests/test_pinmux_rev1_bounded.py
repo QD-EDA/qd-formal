@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from pinmux_rev1_bounded import (EXPR_SHA256, INPUTS, PROPERTY, REMOVED,
+                                 REV0_EXPR_SHA256, REV0_PROPERTY,
                                  canonical_manifest, check_replay, check_temporal_oracle,
                                  parse_values, projected_sources, postcheck_inputs,
                                  query_text, replay_source, selected_property)
@@ -46,7 +47,7 @@ def typed_ast():
 
 
 def replay_lines(q, straps, failure=""):
-    return "".join(f"SAMPLE time={6+10*i} q={v} strap={straps[i]}\n"
+    return "".join(f"SAMPLE time={7+10*i} q={v} strap={straps[i]}\n"
                    for i, v in enumerate(q)) + failure
 
 
@@ -193,6 +194,34 @@ class Rev1BoundedTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "expression"):
             selected_property(ast)
 
+    def test_rev0_typed_lifecycle_and_solver_boundary(self):
+        ast, body = typed_ast()
+        members = ast["design"]["body"]["members"]
+        members[0].update(name=REV0_PROPERTY, source_line=217)
+        members[1]["source_line"] = 217
+        assertion = members[1]["body"]["body"]
+        assertion.update(source_line_start=217, source_line_end=217)
+        body["right"]["expr"] = {"kind": "Call", "subroutine": "4 lc_tx_test_true_strict",
+                                  "arguments": [{"kind": "Call", "subroutine": "$past",
+                                                 "arguments": [{"kind": "ElementSelect",
+                                                                "value": named("lc_hw_debug_en"),
+                                                                "selector": {"constant": "0"}}]}]}
+        with patch("pinmux_rev1_bounded.expression_sha256", return_value=REV0_EXPR_SHA256):
+            self.assertIn("lc_hw_debug_en[0][n] == On",
+                          selected_property(ast, REV0_PROPERTY)["mapping"])
+            body["right"]["expr"]["arguments"][0]["arguments"][0]["selector"]["constant"] = "1"
+            with self.assertRaisesRegex(ValueError, "Rev0 consequent"):
+                selected_property(ast, REV0_PROPERTY)
+        bad = query_text("; model\n", 3, "bad", property_name=REV0_PROPERTY)
+        self.assertIn("(not (= (|pinmux_strap_sampling_n lc_hw_debug_en| s3) #b0101))", bad)
+        self.assertNotIn("lc_hw_debug_en_i", bad)
+        cover = query_text("; model\n", 4, "cover", True, True, REV0_PROPERTY)
+        self.assertIn("(= (|pinmux_strap_sampling_n lc_hw_debug_en| s4) #b0101)", cover)
+        self.assertIn("(|pinmux_strap_sampling_n lc_hw_debug_en| s5)", cover)
+        fault = query_text("; model\n", 3, "bad", True, True, REV0_PROPERTY)
+        self.assertIn("(assert (= (|pinmux_strap_sampling_n lc_hw_debug_en_i| s3) #b1010))", fault)
+        self.assertIn("(assert (|pinmux_strap_sampling_n strap_en_i| s3))", fault)
+
     def test_unconstrained_bad_and_fixed_boundary_queries(self):
         model = "; model\n"
         bad = query_text(model, 3, "bad")
@@ -229,9 +258,9 @@ class Rev1BoundedTests(unittest.TestCase):
             parse_values(output.replace(pairs[0], pairs[0] + pairs[0]))
 
     def test_vvp_zero_exit_never_masks_named_failure_or_wrong_sample(self):
-        good = replay_lines("aaaa5", "000111")
-        control = replay_lines("aaaaaa", "000000")
-        fault = replay_lines("aaa555", "000000",
+        good = replay_lines("aaaa5", "00011")
+        control = replay_lines("aaaaa", "00000")
+        fault = replay_lines("aaa55", "00000",
                              "ERROR: /tmp/fault.sv:235: 45: (/tmp/fault.sv:227) "
                              "[replay.dut] [ASSERT FAILED] LcHwDebugEnSetRev1_A\n"
                              "       Time: 45 Scope: replay.dut\n")
@@ -243,7 +272,7 @@ class Rev1BoundedTests(unittest.TestCase):
                          ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
                          ["#xa"] * 3 + ["#x5"] * 2)
         with self.assertRaisesRegex(ValueError, "trace differs"):
-            check_replay(good.replace("time=36 q=a", "time=36 q=5"), control, fault,
+            check_replay(good.replace("time=37 q=a", "time=37 q=5"), control, fault,
                          ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
                          ["#xa"] * 3 + ["#x5"] * 2)
         with self.assertRaisesRegex(ValueError, "aligned sample"):
@@ -251,6 +280,29 @@ class Rev1BoundedTests(unittest.TestCase):
                          + "INFO: unrelated Time: 45\n",
                          ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
                          ["#xa"] * 3 + ["#x5"] * 2)
+
+    def test_rev0_exact_original_checker_replay(self):
+        def trace(q, lc):
+            return "".join(f"SAMPLE time={7+10*i} q={q[i]} strap={int(i>=2)} "
+                           f"rst=1 lc={lc[i]}\n" for i in range(5))
+        good = trace("aaaa5", "aa555")
+        control = trace("aaaaa", "aaaaa")
+        fault = trace("aaa55", "aaaaa") + (
+            "ERROR: /tmp/fault.sv:229: 45: (/tmp/fault.sv:221) "
+            "[replay.dut] [ASSERT FAILED] LcHwDebugEnSetRev0_A\n"
+            "Time: 45 Scope: replay.dut\n")
+        q = (["#xa"] * 4 + ["#x5"], ["#xa"] * 5, ["#xa"] * 3 + ["#x5"] * 2)
+        lc = (["#xa", "#xa", "#x5", "#x5", "#x5"], ["#xa"] * 5, ["#xa"] * 5)
+        check_replay(good, control, fault, *q, REV0_PROPERTY, lc)
+        with self.assertRaisesRegex(ValueError, "original Rev0"):
+            check_replay(good, control, fault.replace(REV0_PROPERTY, PROPERTY),
+                         *q, REV0_PROPERTY, lc)
+        with self.assertRaisesRegex(ValueError, "aligned sample"):
+            check_replay(good, control, fault.replace(": 45: (", ": 35: ("),
+                         *q, REV0_PROPERTY, lc)
+        with self.assertRaisesRegex(ValueError, "lifecycle trace"):
+            check_replay(good, control, fault.replace("lc=a", "lc=5", 1),
+                         *q, REV0_PROPERTY, lc)
 
     def test_original_checker_temporal_oracle_boundaries(self):
         def trace(prior, current, reset=False, failure=False):

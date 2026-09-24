@@ -15,6 +15,8 @@ from slang_inventory import expression_sha256, instances, symbol
 
 PROPERTY = "LcHwDebugEnSetRev1_A"
 EXPR_SHA256 = "b457f6375c91aac1749cc82fa1710921282de59856b04b4b7239a794c1cc8caa"
+REV0_PROPERTY = "LcHwDebugEnSetRev0_A"
+REV0_EXPR_SHA256 = "c948e71b7d02ae9094ecdb910d3955ee3489bd47472550022ce34c77fdc53872"
 CANONICAL_EDAM_SHA256 = "b83c37dcb51cdcbd8c0bf3cfb1c48690f516b2be74e7ff767592262eacac927e"
 EXPORT_SHA256 = "c208d8ffc22661e9ec61ef023bb9f8e4c78ae75d35df19fff89159757b1780f2"
 GENERATED_CORE = "generator_cache/lowrisc_earlgrey_systems_pinmux_chip_fpv-csr_assert_gen_0.1-75c3f8561083e7c367faf4dc2737a4e4aa899eaa993d816ac7b11e3e53df733e/pinmux_csr_assert_fpv.core"
@@ -144,26 +146,29 @@ def postcheck_inputs(root, edam, out, raw_edam_sha256, inventory):
             "source checkout changed during run")
 
 
-def selected_property(ast):
-    """Accept only the exact typed Rev1 temporal expression in the sampler instance."""
+def selected_property(ast, property_name=PROPERTY):
+    """Accept only the exact typed Rev0 or Rev1 temporal expression."""
+    require(property_name in (PROPERTY, REV0_PROPERTY), "unsupported property")
+    line = 223 if property_name == PROPERTY else 217
+    fingerprint = EXPR_SHA256 if property_name == PROPERTY else REV0_EXPR_SHA256
     matches, labels = [], []
     for instance, path in instances(ast.get("design")):
         if path != "pinmux_strap_sampling":
             continue
         members = instance.get("body", {}).get("members", [])
         labels = [m for m in members if m.get("kind") == "StatementBlock"
-                  and m.get("name") == PROPERTY and m.get("source_line") == 223]
+                  and m.get("name") == property_name and m.get("source_line") == line]
         for member in members:
-            if member.get("kind") != "ProceduralBlock" or member.get("source_line") != 223:
+            if member.get("kind") != "ProceduralBlock" or member.get("source_line") != line:
                 continue
             assertion = member.get("body", {}).get("body", {})
             if assertion.get("kind") == "ConcurrentAssertion":
                 matches.append(assertion)
-    require(len(matches) == len(labels) == 1, "Rev1 label or assertion is ambiguous")
+    require(len(matches) == len(labels) == 1, "property label or assertion is ambiguous")
     assertion = matches[0]
     require(assertion.get("assertionKind") == "Assert"
-            and assertion.get("source_line_start") == 223
-            and assertion.get("source_line_end") == 223
+            and assertion.get("source_line_start") == line
+            and assertion.get("source_line_end") == line
             and assertion.get("source_file_start", "").endswith("/pinmux_strap_sampling.sv"),
             "Rev1 identity differs")
     spec = assertion.get("propertySpec", {})
@@ -178,7 +183,8 @@ def selected_property(ast):
             and symbol(condition.get("left", {}).get("operand", {}).get("symbol", "")) == "rst_ni"
             and condition.get("right", {}).get("value") == "1'b0", "unsupported Rev1 clock/reset")
     body = disabled.get("expr", {})
-    require(expression_sha256(body) == EXPR_SHA256, "Rev1 expression differs")
+    require(expression_sha256(body) == fingerprint,
+            ("Rev1" if property_name == PROPERTY else "Rev0") + " expression differs")
     seq = body.get("left", {}).get("elements", [])
     require(body.get("kind") == "Binary" and body.get("op") == "OverlappedImplication"
             and body.get("left", {}).get("kind") == "SequenceConcat" and len(seq) == 2
@@ -188,16 +194,28 @@ def selected_property(ast):
     require([symbol(x.get("subroutine", "")) for x in calls]
             == ["lc_tx_test_false_loose", "lc_tx_test_true_strict"]
             and all(symbol(x.get("arguments", [{}])[0].get("symbol", ""))
-                    == "pinmux_hw_debug_en_q" for x in calls)
-            and body["right"]["expr"].get("subroutine") == "$past"
-            and symbol(body["right"]["expr"].get("arguments", [{}])[0].get("symbol", ""))
-            == "strap_en_i", "unsupported Rev1 operands")
-    return {"name": PROPERTY, "source_line": 223, "expression_sha256": EXPR_SHA256,
+                    == "pinmux_hw_debug_en_q" for x in calls), "unsupported rise operands")
+    consequent = body["right"]["expr"]
+    if property_name == PROPERTY:
+        require(consequent.get("subroutine") == "$past"
+                and symbol(consequent.get("arguments", [{}])[0].get("symbol", ""))
+                == "strap_en_i", "unsupported Rev1 consequent")
+    else:
+        past = consequent.get("arguments", [{}])[0]
+        selected = past.get("arguments", [{}])[0]
+        require(symbol(consequent.get("subroutine", "")) == "lc_tx_test_true_strict"
+                and past.get("subroutine") == "$past"
+                and selected.get("kind") == "ElementSelect"
+                and symbol(selected.get("value", {}).get("symbol", "")) == "lc_hw_debug_en"
+                and selected.get("selector", {}).get("constant") == "0",
+                "unsupported Rev0 consequent")
+    return {"name": property_name, "source_line": line, "expression_sha256": fingerprint,
             "clock": "posedge clk_i", "disable": "!rst_ni !== 1'b0",
-            "mapping": "q[n] != On && q[n+1] == On -> strap_en_i[n]"}
+            "mapping": ("q[n] != On && q[n+1] == On -> strap_en_i[n]" if property_name == PROPERTY
+                        else "q[n] != On && q[n+1] == On -> lc_hw_debug_en[0][n] == On")}
 
 
-def fixed_inputs(strap_last):
+def fixed_inputs(strap_last, property_name=PROPERTY):
     terms = []
     for step in range(6):
         for name, value in TIED_INPUTS.items():
@@ -206,16 +224,17 @@ def fixed_inputs(strap_last):
                             ("lc_hw_debug_clr_i", "1010"),
                             ("lc_check_byp_en_i", "1010"),
                             ("lc_escalate_en_i", "1010")):
-            if name == "lc_hw_debug_en_i" and step == 0:
+            if name == "lc_hw_debug_en_i" and (step == 0 or
+                    (property_name == REV0_PROPERTY and not strap_last)):
                 value = "1010"
             terms.append(f"(assert (= (|pinmux_strap_sampling_n {name}| s{step}) #b{value}))")
-        strap_value = step >= 4 and strap_last
+        strap_value = (step >= 4 and strap_last) if property_name == PROPERTY else step >= (4 if strap_last else 3)
         signal = f"(|pinmux_strap_sampling_n strap_en_i| s{step})"
         terms.append(f"(assert {signal if strap_value else '(not ' + signal + ')'})")
     return "\n".join(terms) + "\n"
 
 
-def query_text(model, pair, kind, fixed=False, values=False):
+def query_text(model, pair, kind, fixed=False, values=False, property_name=PROPERTY):
     require(pair in (1, 2, 3, 4) and kind in ("bad", "cover", "trace", "reset_bad"),
             "unsupported query")
     pre = (model + "\n" + "".join(
@@ -225,37 +244,43 @@ def query_text(model, pair, kind, fixed=False, values=False):
         + "(assert (not (|pinmux_strap_sampling_n rst_ni| s0)))\n"
         + "".join(f"(assert (|pinmux_strap_sampling_n rst_ni| s{i}))\n" for i in range(1, 6)))
     q = lambda i: f"(|pinmux_strap_sampling_n pinmux_hw_debug_en_q| s{i})"
-    strap = f"(|pinmux_strap_sampling_n strap_en_i| s{pair})"
+    observed = (f"(|pinmux_strap_sampling_n strap_en_i| s{pair})" if property_name == PROPERTY
+                else f"(= (|pinmux_strap_sampling_n lc_hw_debug_en| s{pair}) #b0101)")
     if kind == "reset_bad":
         pre += f"(assert (not (= {q(1)} #b1010)))\n"
     elif kind != "trace":
         pre += f"(assert (and (not (= {q(pair)} #b0101)) (= {q(pair+1)} #b0101)"
-        pre += f" {'(not ' + strap + ')' if kind == 'bad' else strap}))\n"
+        pre += f" {'(not ' + observed + ')' if kind == 'bad' else observed}))\n"
     else:
         pre += "".join(f"(assert (not (= {q(i)} #b0101)))\n" for i in range(1, 6))
     if fixed:
-        pre += fixed_inputs(kind == "cover")
+        pre += fixed_inputs(kind == "cover", property_name)
     pre += "(check-sat)\n"
     if values:
         items = [f"(|pinmux_strap_sampling_n {name}| s{i})"
                  for i in range(1, 5) for name in INPUTS]
         items += [q(i) for i in range(1, 6)]
+        if property_name == REV0_PROPERTY:
+            items += [f"(|pinmux_strap_sampling_n lc_hw_debug_en| s{i})" for i in range(1, 6)]
         pre += "(get-value (" + " ".join(items) + "))\n"
     return pre
 
 
-def parse_values(output):
+def parse_values(output, property_name=PROPERTY):
     pattern = r"\(\(\|pinmux_strap_sampling_n ([A-Za-z_]+)\| s([1-5])\) (true|false|#x[0-9a-f]+|#b[01]+)\)"
     matches = re.findall(pattern, output)
     found = {(int(step), name): value for name, step, value in matches}
     expected = {(i, name) for i in range(1, 5) for name in INPUTS}
     expected.update((i, "pinmux_hw_debug_en_q") for i in range(1, 6))
+    if property_name == REV0_PROPERTY:
+        expected.update((i, "lc_hw_debug_en") for i in range(1, 6))
     require(len(matches) == len(found) == len(expected) and set(found) == expected,
             "solver witness is incomplete or duplicated")
     require(all(found[i, "rst_ni"] == "true" for i in range(1, 5)),
             "solver witness reset differs")
-    return {str(i): {name: found[i, name] for name in INPUTS} for i in range(1, 5)}, \
-           [found[i, "pinmux_hw_debug_en_q"] for i in range(1, 6)]
+    inputs = {str(i): {name: found[i, name] for name in INPUTS} for i in range(1, 5)}
+    q = [found[i, "pinmux_hw_debug_en_q"] for i in range(1, 6)]
+    return (inputs, q, [found[i, "lc_hw_debug_en"] for i in range(1, 6)]) if property_name == REV0_PROPERTY else (inputs, q)
 
 
 def replay_source(inputs, reset_before_check=False):
@@ -288,7 +313,7 @@ def replay_source(inputs, reset_before_check=False):
               else ["    #20; $finish;"])
     lines += ["  end",
               '  always @(posedge clk_i) begin',
-              '    #2; $display("SAMPLE time=%0t q=%h strap=%b rst=%b", $time, dut.pinmux_hw_debug_en_q, strap_en_i, rst_ni);',
+              '    #2; $display("SAMPLE time=%0t q=%h strap=%b rst=%b lc=%h", $time, dut.pinmux_hw_debug_en_q, strap_en_i, rst_ni, dut.lc_hw_debug_en[0]);',
               "  end", "endmodule"]
     return "\n".join(lines) + "\n"
 
@@ -303,21 +328,36 @@ def assertion_records(output):
     return records
 
 
-def check_replay(good, control, fault, good_q, control_q, fault_q):
+def check_replay(good, control, fault, good_q, control_q, fault_q,
+                 property_name=PROPERTY, lifecycle=None):
     """VVP returns zero even on $error; inspect the original named assertion."""
     sample = re.compile(r"SAMPLE time=(\d+) q=([0-9a-f]) strap=([01])")
     good_samples, control_samples, fault_samples = (sample.findall(x)
                                                     for x in (good, control, fault))
-    require(["#x" + q for _, q, _ in good_samples[:5]] == good_q
-            and ["#x" + q for _, q, _ in control_samples[:5]] == control_q
-            and ["#x" + q for _, q, _ in fault_samples[:5]] == fault_q,
+    require(all(len(samples) == 5 and [int(x[0]) for x in samples] == [7, 17, 27, 37, 47]
+                for samples in (good_samples, control_samples, fault_samples))
+            and ["#x" + q for _, q, _ in good_samples] == good_q
+            and ["#x" + q for _, q, _ in control_samples] == control_q
+            and ["#x" + q for _, q, _ in fault_samples] == fault_q,
             "Icarus sample trace differs from SMT witness")
     require("[ASSERT FAILED]" not in good and "ERROR:" not in good,
             "original RTL replay failed")
     require("[ASSERT FAILED]" not in control and "ERROR:" not in control,
             "original RTL failed on mutant witness inputs")
-    require(assertion_records(fault) == [("45", PROPERTY, "45")],
-            "scratch fault did not trigger only original Rev1 at the aligned sample")
+    require(assertion_records(fault) == [("45", property_name, "45")],
+            "scratch fault did not trigger only original "
+            + ("Rev1" if property_name == PROPERTY else "Rev0") + " at the aligned sample")
+    if property_name == REV0_PROPERTY:
+        require(lifecycle is not None, "missing Rev0 lifecycle witness")
+        for output, expected in zip((good, control, fault), lifecycle):
+            observed = re.findall(r"SAMPLE time=\d+ q=[0-9a-f] strap=[01] rst=[01] lc=([0-9a-f])", output)
+            require(["#x" + value for value in observed] == expected,
+                    "Icarus lifecycle trace differs from SMT witness")
+        require(good_samples[3][1] == "a" and good_samples[4][1] == "5"
+                and lifecycle[0][3] == "#x5"
+                and fault_samples[2][1] == "a" and fault_samples[3][1] == "5"
+                and lifecycle[2][2] != "#x5", "Rev0 rise/lifecycle alignment differs")
+        return
     require(good_samples[3][1] == "a" and good_samples[4][1] == "5"
             and good_samples[3][2] == "1"
             and fault_samples[2][1] == "a" and fault_samples[3][1] == "5"
@@ -337,7 +377,8 @@ def check_temporal_oracle(output, prior, current, reset, failure):
             "original Rev1 temporal oracle differs")
 
 
-def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
+def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120,
+          property_name=PROPERTY):
     root, edam, out = Path(os.path.abspath(root)), Path(os.path.abspath(edam)), Path(out).resolve()
     require(root != out and root not in out.parents and out not in root.parents,
             "evidence must be outside chip checkout")
@@ -345,13 +386,15 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
     out.mkdir(parents=True, exist_ok=True)
     report = {"schema_version": 1, "result": "UNKNOWN",
               "claim": "five_transition_two_state_synthesized_sampler_model",
-              "property": PROPERTY, "opentitan_pin": PIN, "failure_reasons": [], "tools": {},
+              "property": property_name, "opentitan_pin": PIN, "failure_reasons": [], "tools": {},
               "queries": {}, "source_sha256": {},
               "scope": {"reset": "s0 rst_ni=0; s1..s5 rst_ni=1",
                         "bad_queries": "all other sampler inputs free at every state",
                         "cover_and_replay": "all top-level sampler inputs fixed to recorded values at s0..s5",
                         "semantics": "Yosys read_slang synthesized two-state transition model; original SVA typed separately",
-                        "temporal_oracle": "directed two-state Icarus runs of original Rev1 checker on QD-only mutant",
+                        "temporal_oracle": ("directed two-state Icarus runs of original Rev1 checker on QD-only mutant"
+                                            if property_name == PROPERTY else
+                                            "original Rev0 Icarus checker replay of exact solver witness"),
                         "full_original_sva_or_chip_policy": "UNKNOWN"}}
     try:
         require(git_output(root, ["rev-parse", "HEAD"]) == PIN
@@ -378,7 +421,7 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
         capture([slang_path, "--top", "pinmux_strap_sampling", "--single-unit", "-DFPV_ON",
                  "--ast-json", str(ast_path), "--ast-json-source-info", "-f", str(vf)],
                 root, out, "slang", timeout)
-        report["typed_property"] = selected_property(json.loads(ast_path.read_text()))
+        report["typed_property"] = selected_property(json.loads(ast_path.read_text()), property_name)
         icarus = report["tools"]["iverilog"]["path"]
         base_argv = [icarus, "-g2012", "-gassertions", "-DFPV_ON", "-s", "pinmux_strap_sampling"]
         base_argv += ["-I" + d for d in dirs]
@@ -397,7 +440,14 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
         old = "assign lc_hw_debug_en_masked = lc_tx_and_hi(lc_strap_en, lc_hw_debug_en[0]);"
         require(source.count(old) == 1, "scratch fault site differs")
         mutant = out / "faulty_sampler.sv"
-        mutant.write_text(source.replace(old, "assign lc_hw_debug_en_masked = lc_hw_debug_en[0];"))
+        replacement = ("assign lc_hw_debug_en_masked = lc_hw_debug_en[0];" if property_name == PROPERTY
+                       else "assign lc_hw_debug_en_masked = lc_strap_en;")
+        fault_source = source.replace(old, replacement)
+        if property_name == REV0_PROPERTY:
+            declaration = "lc_tx_t [0:0] lc_hw_debug_en;"
+            require(source.count(declaration) == 1, "Rev0 lifecycle observation site differs")
+            fault_source = fault_source.replace(declaration, "(* keep *) " + declaration)
+        mutant.write_text(fault_source)
         sampler_export = next(s for s in sources if s.name == "pinmux_strap_sampling.sv")
         model_data = {}
         for variant in ("good", "fault"):
@@ -417,7 +467,8 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
                     and b"Found and reported 0 problems." in yosys_output
                     and b"Warning:" not in yosys_output, "unsupported Yosys diagnostics")
             model = smt.read_text()
-            for signal in ("pinmux_hw_debug_en_q", *INPUTS):
+            for signal in ("pinmux_hw_debug_en_q", *INPUTS,
+                           *(("lc_hw_debug_en",) if property_name == REV0_PROPERTY else ())):
                 require(f"(define-fun |pinmux_strap_sampling_n {signal}|" in model,
                         "missing SMT signal: " + signal)
             require("(define-fun |pinmux_strap_sampling_i| ((state |pinmux_strap_sampling_s|)) Bool true)" in model,
@@ -425,26 +476,33 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
             model_data[variant] = model
         def solve(variant, name, pair, kind, fixed, expected, witness=False):
             path = out / f"{name}.query.smt2"
-            path.write_text(query_text(model_data[variant], pair, kind, fixed, witness))
+            path.write_text(query_text(model_data[variant], pair, kind, fixed, witness, property_name))
             output = capture([report["tools"]["z3"]["path"], str(path)],
                              out, out, name, timeout).decode()
             require(output.splitlines()[0] == expected
                     and (witness or output.strip() == expected),
                     name + " solver result differs")
             report["queries"][name] = expected
-            return parse_values(output) if witness else None
+            return parse_values(output, property_name) if witness else None
         for i in range(1, 5):
             solve("good", f"good-bad-{i}", i, "bad", False, "unsat")
         solve("good", "reset-grounding", 1, "reset_bad", False, "unsat")
         solve("good", "early-rise-boundary", 1, "cover", True, "unsat")
-        good_inputs, good_q = solve("good", "good-rise-cover", 4, "cover", True, "sat", True)
-        control_inputs, control_q = solve("good", "good-fault-input-control", 3,
-                                          "trace", True, "sat", True)
-        fault_inputs, fault_q = solve("fault", "fault-bad-rise", 3, "bad", True, "sat", True)
+        good_witness = solve("good", "good-rise-cover", 4, "cover", True, "sat", True)
+        control_witness = solve("good", "good-fault-input-control", 3,
+                                "trace", True, "sat", True)
+        fault_witness = solve("fault", "fault-bad-rise", 3, "bad", True, "sat", True)
+        good_inputs, good_q = good_witness[:2]
+        control_inputs, control_q = control_witness[:2]
+        fault_inputs, fault_q = fault_witness[:2]
         require(control_inputs == fault_inputs, "mutant and original control inputs differ")
         report["witnesses"] = {"good": {"inputs": good_inputs, "q": good_q},
                                "control": {"inputs": control_inputs, "q": control_q},
                                "fault": {"inputs": fault_inputs, "q": fault_q}}
+        if property_name == REV0_PROPERTY:
+            for name, witness in (("good", good_witness), ("control", control_witness),
+                                  ("fault", fault_witness)):
+                report["witnesses"][name]["lc_hw_debug_en_0"] = witness[2]
         vvp = Path(icarus).with_name("vvp")
         require(vvp.is_file(), "matching vvp is unavailable")
         capture([str(vvp), "-V"], root, out, "vvp-version", timeout, allow_stderr=True)
@@ -469,13 +527,19 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
             outputs[variant] = capture([str(vvp), str(executable)], out, out,
                                        f"replay-{variant}-run", timeout).decode()
         check_replay(outputs["good"], outputs["control"], outputs["fault"],
-                     good_q, control_q, fault_q)
-        report["temporal_oracle"] = {}
+                     good_q, control_q, fault_q, property_name,
+                     [x[2] for x in (good_witness, control_witness, fault_witness)]
+                     if property_name == REV0_PROPERTY else None)
+        if property_name == REV0_PROPERTY:
+            report["replay_oracle"] = {"original_checker": property_name,
+                                       "fault_event_time": 45, "observed": "matched"}
+        else:
+            report["temporal_oracle"] = {}
         fault_sources = [mutant if s == sampler_export else s for s in sources]
-        for name, prior, current, reset, failure in (
+        for name, prior, current, reset, failure in (() if property_name == REV0_PROPERTY else (
                 ("past_strap_pass", 1, 0, False, False),
                 ("current_strap_cannot_rescue", 0, 1, False, True),
-                ("reset_cancels_pending", 0, 0, True, False)):
+                ("reset_cancels_pending", 0, 0, True, False))):
             inputs = {step: values.copy() for step, values in fault_inputs.items()}
             inputs["3"]["strap_en_i"] = "true" if prior else "false"
             inputs["4"]["strap_en_i"] = "true" if current else "false"
@@ -511,10 +575,11 @@ def main():
     parser.add_argument("--yosys", default="yosys")
     parser.add_argument("--z3", default="z3")
     parser.add_argument("--iverilog", default="iverilog")
+    parser.add_argument("--property", choices=(PROPERTY, REV0_PROPERTY), default=PROPERTY)
     parser.add_argument("--timeout", type=int, default=120)
     args = parser.parse_args()
     result = check(args.opentitan, args.edam, args.evidence, args.slang, args.yosys,
-                   args.z3, args.iverilog, args.timeout)
+                   args.z3, args.iverilog, args.timeout, args.property)
     print(result["result"] + ": " + ", ".join(result["failure_reasons"]))
     return 0 if result["result"] == "bounded_model_check_ok" else 2
 
