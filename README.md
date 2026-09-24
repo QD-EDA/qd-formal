@@ -74,4 +74,8 @@ contract are in [SPEC.md](SPEC.md); planned increments are in
 The inventories need Python 3's standard library and their chosen compiler
 (Icarus Verilog or slang). The one-sample checker also needs Yosys with
 `read_slang`, Z3, and the matching `vvp` runtime for scratch witness replay.
+
+The [Earlgrey pinmux sampler status](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md)
+records a separate default-debug-path frontend probe and its unresolved
+upstream filelist and temporal-proof gaps.
 This folder is licensed under Apache-2.0.
