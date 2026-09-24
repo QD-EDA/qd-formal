@@ -5,11 +5,21 @@
 `pinmux_chip_fpv` EDAM does not elaborate because its testbench omits
 `top_earlgrey_pkg` and `lc_hw_debug_clr_i`. This runner uses its 217-source
 sampler projection, excluding that testbench and three unused VIP/bind/CSR
-translation units. It verifies the EDAM hash, all 230 exported source/include
+translation units. It verifies the canonical EDAM identity, all 230 exported source/include
 byte hashes as one pinned aggregate, and five key copies against the clean
 OpenTitan checkout. It also checks that every file under the exported `src/`
 tree is listed in the EDAM; the four include directories contain no unlisted
 files. The original `pinmux_strap_sampling.sv` is unchanged.
+
+FuseSoC writes checkout-relative paths into 85 EDAM `core_file` entries, so a
+fresh clean checkout changes the raw EDAM SHA-256. The runner verifies that
+each of those paths is an existing file inside the supplied pinned checkout,
+then replaces only the checkout prefix for its canonical digest. It preserves
+ordered file and dependency lists, tool options, parameters, and every other
+EDAM value. The generated CSR core path and bytes are pinned separately;
+duplicate YAML keys, path escapes, missing files, or any other manifest edit
+yield `UNKNOWN`. `result.json` records both the raw EDAM hash and canonical
+digest.
 
 Run with a fresh evidence directory and the generated EDAM described in
 [the frontend status](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md):
@@ -55,7 +65,7 @@ Those remain `UNKNOWN`. New EDAM/source bytes, typed property shapes, tool
 diagnostics, missing roster entries, solver `unknown`, or replay mismatch also
 return `UNKNOWN`.
 
-The local raw run is in `../evidence/pinmux-rev1-bounded-final/` in the
+The initial local raw run is in `../evidence/pinmux-rev1-bounded-final/` in the
 QD-EDA workspace. It retains the AST, both Yosys SMT models, every SMT query
 and response, three generated replay sources, Icarus/VVP streams, exact argv,
 all source/tool SHA-256 values, and `result.json`. The slang, Icarus, and
@@ -64,5 +74,11 @@ Yosys source reads all use `FPV_ON`; Yosys also defines `SYNTHESIS`. A local
 resident set size. The
 tool versions were Python 3.13.15 with PyYAML 6.0.3, slang
 11.0.448+e222e7dc0, Yosys 0.68+80 (`621d943ac-dirty`), Z3 4.15.5,
-and matched Icarus/VVP 13.0 development builds. This one machine and one
-configuration are evidence, not a production performance or release claim.
+and matched Icarus/VVP 13.0 development builds. A second independent clean
+checkout and fresh FuseSoC export produced the same canonical EDAM digest,
+all 230 source hashes, property fingerprint, nine solver outcomes, and three
+replay witnesses. The two raw EDAM hashes differ as expected. The exact setup,
+negative pre-fix `UNKNOWN`, both successful reruns, and 26-test regression
+are in `../evidence/pinmux-rev1-second-checkout/`. Both runs used the same
+machine and tool binaries; this is repeatability evidence, not production
+qualification or a release claim.

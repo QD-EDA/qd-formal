@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -14,8 +15,11 @@ from slang_inventory import expression_sha256, instances, symbol
 
 PROPERTY = "LcHwDebugEnSetRev1_A"
 EXPR_SHA256 = "b457f6375c91aac1749cc82fa1710921282de59856b04b4b7239a794c1cc8caa"
-EDAM_SHA256 = "c4857a2b728ac72c02350dff9aa49436673f6c60c3a2653f60f6258a0626ab16"
+CANONICAL_EDAM_SHA256 = "b83c37dcb51cdcbd8c0bf3cfb1c48690f516b2be74e7ff767592262eacac927e"
 EXPORT_SHA256 = "c208d8ffc22661e9ec61ef023bb9f8e4c78ae75d35df19fff89159757b1780f2"
+GENERATED_CORE = "generator_cache/lowrisc_earlgrey_systems_pinmux_chip_fpv-csr_assert_gen_0.1-75c3f8561083e7c367faf4dc2737a4e4aa899eaa993d816ac7b11e3e53df733e/pinmux_csr_assert_fpv.core"
+GENERATED_CORE_SHA256 = "83e628f750b2bb709fa59850b73e6974fdb3a3ff288bfcca19d60c5cfe3dac74"
+SOURCE_CORE_COUNT = 85
 SAMPLER = "hw/top_earlgrey/ip_autogen/pinmux/rtl/pinmux_strap_sampling.sv"
 REMOVED = {
     "src/lowrisc_earlgrey_fpv_pinmux_common_fpv_0.1/vip/pinmux_assert_fpv.sv",
@@ -42,14 +46,57 @@ LOCAL_NAMES = {"LcHwDebugEnSet_A", "LcHwDebugEnSetRev0_A", PROPERTY,
                "DftTapOff0_A", "RvTapOff2_A", "RvTapOff3_A", "DftTapOff1_A"}
 
 
-def projected_sources(root, edam, out):
-    """Use the pinned FuseSoC export, excluding only the broken chip FPV top and unused VIP."""
+def canonical_manifest(root, edam):
+    """Pin EDAM semantics while allowing only source checkout relocation."""
     try:
         import yaml
     except ImportError as error:
         raise ValueError("PyYAML is required to read the pinned EDAM") from error
-    require(sha256(edam) == EDAM_SHA256, "EDAM differs from pinned FPV setup")
-    manifest = yaml.safe_load(edam.read_text())
+
+    class UniqueKeys(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            mapping = {}
+            for key_node, value_node in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                require(key not in mapping, "duplicate YAML key")
+                mapping[key] = self.construct_object(value_node, deep=deep)
+            return mapping
+
+    try:
+        manifest = yaml.load(edam.read_text(), Loader=UniqueKeys)
+    except yaml.YAMLError as error:
+        raise ValueError("invalid EDAM YAML") from error
+    require(isinstance(manifest, dict) and isinstance(manifest.get("cores"), dict),
+            "unsupported EDAM structure")
+    checkout = Path(os.path.abspath(root))
+    export = Path(os.path.abspath(edam.parent))
+    source_cores = generated_cores = 0
+    for core in manifest["cores"].values():
+        require(isinstance(core, dict) and isinstance(core.get("core_file"), str),
+                "unsupported core_file")
+        value = core["core_file"]
+        path = Path(os.path.abspath(export / value))
+        if value == GENERATED_CORE:
+            require(path.is_file() and path.resolve().is_relative_to(export.resolve())
+                    and sha256(path) == GENERATED_CORE_SHA256, "generated core_file differs")
+            generated_cores += 1
+        else:
+            require(path.is_relative_to(checkout) and path.is_file()
+                    and path.resolve().is_relative_to(checkout.resolve()),
+                    "core_file escapes or is missing from pinned checkout")
+            core["core_file"] = "@opentitan/" + path.relative_to(checkout).as_posix()
+            source_cores += 1
+    require((source_cores, generated_cores) == (SOURCE_CORE_COUNT, 1),
+            "EDAM core_file roster differs")
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True,
+                                       separators=(",", ":")).encode()).hexdigest()
+    require(digest == CANONICAL_EDAM_SHA256, "canonical EDAM differs from pinned FPV setup")
+    return manifest, digest
+
+
+def projected_sources(root, edam, out):
+    """Use the pinned FuseSoC export, excluding only the broken chip FPV top and unused VIP."""
+    manifest, canonical_digest = canonical_manifest(root, edam)
     require(manifest.get("toplevel") == "pinmux_chip_tb"
             and manifest.get("parameters") == {}
             and manifest.get("tool_options") == {"icarus": {}}, "unsupported EDAM options")
@@ -84,7 +131,7 @@ def projected_sources(root, edam, out):
     vf = out / "sampler.vf"
     vf.write_text("".join(f"-I {d}\n" for d in dirs)
                   + "".join(f"{s}\n" for s in sources))
-    return dirs, sources, hashes, vf
+    return dirs, sources, hashes, vf, canonical_digest
 
 
 def selected_property(ast):
@@ -257,7 +304,7 @@ def check_replay(good, control, fault, good_q, control_q, fault_q):
 
 
 def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
-    root, edam, out = Path(root).resolve(), Path(edam).resolve(), Path(out).resolve()
+    root, edam, out = Path(os.path.abspath(root)), Path(os.path.abspath(edam)), Path(out).resolve()
     require(root != out and root not in out.parents and out not in root.parents,
             "evidence must be outside chip checkout")
     require(not out.exists() or not any(out.iterdir()), "evidence directory must be empty")
@@ -275,9 +322,10 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
         require(git_output(root, ["rev-parse", "HEAD"]) == PIN
                 and not git_output(root, ["status", "--porcelain", "--untracked-files=all"]),
                 "source checkout is not clean at pin")
-        dirs, sources, hashes, vf = projected_sources(root, edam, out)
-        report["source_sha256"] = hashes
         report["edam_sha256"] = sha256(edam)
+        dirs, sources, hashes, vf, canonical_digest = projected_sources(root, edam, out)
+        report["canonical_edam_sha256"] = canonical_digest
+        report["source_sha256"] = hashes
         for name, tool, version_flag in (("slang", slang, "--version"), ("yosys", yosys, "-V"),
                                          ("z3", z3, "-version"), ("iverilog", iverilog, "-V")):
             path = Path(shutil.which(str(tool)) or tool).resolve()

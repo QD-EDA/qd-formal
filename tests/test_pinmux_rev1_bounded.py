@@ -1,14 +1,13 @@
 import hashlib
 import json
+import os
 from pathlib import Path
-import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from pinmux_rev1_bounded import (EXPR_SHA256, INPUTS, PROPERTY, REMOVED,
-                                 check_replay, parse_values, projected_sources,
+                                 canonical_manifest, check_replay, parse_values, projected_sources,
                                  query_text, selected_property)
 from qd_formal import sha256
 
@@ -51,6 +50,93 @@ def replay_lines(q, straps, failure=""):
 
 
 class Rev1BoundedTests(unittest.TestCase):
+    def test_relocated_core_paths_keep_canonical_edam_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outputs = []
+            for name in ("first", "second"):
+                root = base / name / "chip"
+                core = root / "hw/core.core"
+                core.parent.mkdir(parents=True)
+                core.write_text("pinned core")
+                export = base / name / "build"
+                generated = export / "generator_cache/gen.core"
+                generated.parent.mkdir(parents=True)
+                generated.write_text("generated core")
+                edam = export / "design.eda.yml"
+                edam.write_text("files:\n- name: src/a.sv\n- name: src/b.sv\n"
+                                "cores:\n  chip:\n    core_file: "
+                                + os.path.relpath(core, export) + "\n"
+                                "  generated:\n    core_file: generator_cache/gen.core\n"
+                                "dependencies:\n- first\n- second\n")
+                outputs.append((root, edam))
+            expected = {"files": [{"name": "src/a.sv"}, {"name": "src/b.sv"}],
+                        "cores": {"chip": {"core_file": "@opentitan/hw/core.core"},
+                                  "generated": {"core_file": "generator_cache/gen.core"}},
+                        "dependencies": ["first", "second"]}
+            digest = hashlib.sha256(json.dumps(expected, sort_keys=True,
+                                               separators=(",", ":")).encode()).hexdigest()
+            with patch("pinmux_rev1_bounded.GENERATED_CORE", "generator_cache/gen.core"), \
+                 patch("pinmux_rev1_bounded.GENERATED_CORE_SHA256", sha256(outputs[0][1].parent / "generator_cache/gen.core")), \
+                 patch("pinmux_rev1_bounded.SOURCE_CORE_COUNT", 1), \
+                 patch("pinmux_rev1_bounded.CANONICAL_EDAM_SHA256", digest):
+                first = canonical_manifest(*outputs[0])
+                self.assertEqual(first, canonical_manifest(*outputs[1]))
+                edited = outputs[1][1].read_text().replace("- first\n- second", "- second\n- first")
+                outputs[1][1].write_text(edited)
+                with self.assertRaisesRegex(ValueError, "canonical EDAM"):
+                    canonical_manifest(*outputs[1])
+
+    def test_core_path_escape_missing_and_duplicate_yaml_are_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root, export = base / "chip", base / "build"
+            root.mkdir()
+            export.mkdir()
+            core = root / "core.core"
+            core.write_text("core")
+            outside = base / "outside.core"
+            outside.write_text("outside")
+            generated = export / "generator_cache/gen.core"
+            generated.parent.mkdir()
+            generated.write_text("generated")
+            edam = export / "design.eda.yml"
+            expected = {"cores": {"chip": {"core_file": "@opentitan/core.core"},
+                                  "generated": {"core_file": "generator_cache/gen.core"}}}
+            digest = hashlib.sha256(json.dumps(expected, sort_keys=True,
+                                               separators=(",", ":")).encode()).hexdigest()
+            def write_core(path):
+                edam.write_text("cores:\n  chip:\n    core_file: " + path + "\n"
+                                "  generated:\n    core_file: generator_cache/gen.core\n")
+            with patch("pinmux_rev1_bounded.GENERATED_CORE", "generator_cache/gen.core"), \
+                 patch("pinmux_rev1_bounded.GENERATED_CORE_SHA256", sha256(generated)), \
+                 patch("pinmux_rev1_bounded.SOURCE_CORE_COUNT", 1), \
+                 patch("pinmux_rev1_bounded.CANONICAL_EDAM_SHA256", digest):
+                write_core(os.path.relpath(core, export))
+                canonical_manifest(root, edam)
+                write_core(os.path.relpath(outside, export))
+                with self.assertRaisesRegex(ValueError, "core_file"):
+                    canonical_manifest(root, edam)
+                core.unlink()
+                core.symlink_to(outside)
+                write_core(os.path.relpath(core, export))
+                with self.assertRaisesRegex(ValueError, "core_file"):
+                    canonical_manifest(root, edam)
+                core.unlink()
+                with self.assertRaisesRegex(ValueError, "core_file"):
+                    canonical_manifest(root, edam)
+                core.write_text("core")
+                generated.write_text("changed")
+                with self.assertRaisesRegex(ValueError, "generated core_file"):
+                    canonical_manifest(root, edam)
+                generated.write_text("generated")
+                edam.write_text(edam.read_text() + "cores: {}\n")
+                with self.assertRaisesRegex(ValueError, "duplicate YAML key"):
+                    canonical_manifest(root, edam)
+                edam.write_text("cores: [unterminated\n")
+                with self.assertRaisesRegex(ValueError, "invalid EDAM YAML"):
+                    canonical_manifest(root, edam)
+
     def test_any_exported_dependency_change_is_unknown(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -70,8 +156,7 @@ class Rev1BoundedTests(unittest.TestCase):
             hashes = {name: sha256(base / name) for name in names}
             aggregate = hashlib.sha256(json.dumps(hashes, sort_keys=True,
                                                   separators=(",", ":")).encode()).hexdigest()
-            with patch.dict(sys.modules, {"yaml": SimpleNamespace(safe_load=lambda _: manifest)}), \
-                 patch("pinmux_rev1_bounded.EDAM_SHA256", sha256(edam)), \
+            with patch("pinmux_rev1_bounded.canonical_manifest", return_value=(manifest, "fixture")), \
                  patch("pinmux_rev1_bounded.EXPORT_SHA256", aggregate), \
                  patch("pinmux_rev1_bounded.SOURCE_EQUIVALENCE", {}):
                 self.assertEqual(len(projected_sources(base, edam, base)[1]), 217)
