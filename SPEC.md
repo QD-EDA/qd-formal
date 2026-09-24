@@ -79,3 +79,40 @@ properties. `yosys-smtbmc` is not used: its exported assertion for this harness
 is constant true, so its `PASSED` result would be vacuous. Every command,
 stream, solver query, model, mapping, source/tool hash, and tool version is
 retained in the external evidence directory. Unsupported output is `UNKNOWN`.
+
+## Pinmux Rev1 bounded model check
+
+`pinmux_rev1_bounded.py` requires the clean pinned OpenTitan checkout and the
+exact FuseSoC `pinmux_chip_fpv` EDAM/export bytes. It excludes the broken chip
+FPV testbench and three unused VIP/bind/CSR files, leaving 217 compilation
+units for a selected `pinmux_strap_sampling` top. The sampler and four
+critical dependencies must also match their original source bytes. PyYAML is
+needed only to read that EDAM; the unit tests use the Python standard library.
+
+The original Rev1 SVA must appear in slang's typed AST at the pinned source
+line, role, clock, reset, operands, `##1` delay, `$past` call, and expression
+fingerprint. Icarus must register the ten sampler-local names once each and
+the pinned dependency roster. These are frontend gates. Yosys `read_slang`
+then synthesizes the same source selection to a two-state RTL transition
+model; its `SYNTHESIS` macro drops the original SVA. The solver explicitly
+queries the translated temporal condition using the named q and strap wires,
+not Yosys's vacuous assertion export.
+
+With s0 reset low and s1..s5 reset high, an UNSAT reset query establishes
+q(s1)=Off. Four UNSAT bad queries range over **all** other sampler inputs and
+ask whether `q[n] != On && q[n+1] == On && !strap_en_i[n]` is reachable for
+n=1..4. A SAT fixed-input rise cover, UNSAT early-rise boundary, and SAT
+scratch-fault bad rise check nonvacuity and sensitivity. For witness replays,
+all top-level inputs are fixed in SMT to the generated SV harness values;
+Z3-returned relevant inputs generate the Icarus stimuli. An original-on-fault-
+inputs control replay and a mutant replay must agree with solver q samples.
+The mutant must produce the **original** named Rev1 failure at the aligned
+clock despite VVP's zero exit status. Every failing tool, changed source,
+unsupported AST/SMT/solver value, warning, or replay mismatch is `UNKNOWN`.
+
+`bounded_model_check_ok` is a finite result for the synthesized two-state
+sampler model and sampled correspondence. It is not exhaustive equivalence
+to original four-state SV execution or proof of the full original SVA. The
+pinmux-to-RV_DM chip path, NDM retention, and production qualification remain
+UNKNOWN. Raw models, queries, commands, diagnostics, witnesses, source/tool
+hashes, and result are mandatory evidence artifacts.

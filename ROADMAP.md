@@ -37,8 +37,12 @@
    connection. The pinned pinmux FPV EDAM currently fails semantic elaboration
    because its testbench lacks a package and a port connection. A QD-only
    selected-module projection of unchanged sampler RTL exposes Rev0/Rev1 in
-   slang and Icarus, but neither a complete upstream FPV run nor a proof.
+   slang and Icarus. A five-transition synthesized two-state model check of
+   Rev1 is now recorded with reset grounding, all-input bad queries,
+   nonvacuous rise, and Icarus sample replay. It is not exhaustive original
+   SV/SVA equivalence, a complete upstream FPV run, or a chip policy proof.
    See [the sampler frontend evidence](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md).
+   See [the bounded Rev1 evidence](PINMUX_REV1_BOUNDED_EVIDENCE.md).
    Upstream policy is an interim oracle; hardware-policy review is required
    for qualification.
 5. **Broader formal coverage:** Caliptra SHA-256 `idle_wait_a` checks the next
