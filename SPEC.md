@@ -113,6 +113,14 @@ The mutant must produce the **original** named Rev1 failure at the aligned
 clock despite VVP's zero exit status. Every failing tool, changed source,
 unsupported AST/SMT/solver value, warning, or replay mismatch is `UNKNOWN`.
 
+Three additional directed Icarus runs use the same QD-only mask-bypass mutant
+and original Rev1 checker. A prior strap with current strap low must pass; a
+current strap with prior strap low must still fail; reset asserted between the
+rise and pending check must suppress that failure. Exact sampled q/strap/reset
+traces and named checker output must match, or the result is `UNKNOWN`. These
+are direct two-state temporal-semantics checks, not solver queries or exhaustive
+equivalence to four-state SVA execution.
+
 `bounded_model_check_ok` is a finite result for the synthesized two-state
 sampler model and sampled correspondence. It is not exhaustive equivalence
 to original four-state SV execution or proof of the full original SVA. The

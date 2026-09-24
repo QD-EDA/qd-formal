@@ -7,8 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from pinmux_rev1_bounded import (EXPR_SHA256, INPUTS, PROPERTY, REMOVED,
-                                 canonical_manifest, check_replay, parse_values, projected_sources,
-                                 postcheck_inputs, query_text, selected_property)
+                                 canonical_manifest, check_replay, check_temporal_oracle,
+                                 parse_values, projected_sources, postcheck_inputs,
+                                 query_text, replay_source, selected_property)
 from qd_formal import sha256
 
 
@@ -231,7 +232,8 @@ class Rev1BoundedTests(unittest.TestCase):
         good = replay_lines("aaaa5", "000111")
         control = replay_lines("aaaaaa", "000000")
         fault = replay_lines("aaa555", "000000",
-                             "ERROR: checker [ASSERT FAILED] LcHwDebugEnSetRev1_A\n"
+                             "ERROR: /tmp/fault.sv:235: 45: (/tmp/fault.sv:227) "
+                             "[replay.dut] [ASSERT FAILED] LcHwDebugEnSetRev1_A\n"
                              "       Time: 45 Scope: replay.dut\n")
         check_replay(good, control, fault,
                      ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
@@ -244,6 +246,44 @@ class Rev1BoundedTests(unittest.TestCase):
             check_replay(good.replace("time=36 q=a", "time=36 q=5"), control, fault,
                          ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
                          ["#xa"] * 3 + ["#x5"] * 2)
+        with self.assertRaisesRegex(ValueError, "aligned sample"):
+            check_replay(good, control, fault.replace(": 45: (", ": 35: (")
+                         + "INFO: unrelated Time: 45\n",
+                         ["#xa"] * 4 + ["#x5"], ["#xa"] * 5,
+                         ["#xa"] * 3 + ["#x5"] * 2)
+
+    def test_original_checker_temporal_oracle_boundaries(self):
+        def trace(prior, current, reset=False, failure=False):
+            q = "aaa5a" if reset else "aaa55"
+            straps = "00" + str(prior) + str(current) * 2
+            resets = "11110" if reset else "11111"
+            output = "".join(f"SAMPLE time={7+10*i} q={q[i]} strap={straps[i]} rst={resets[i]}\n"
+                             for i in range(5))
+            if failure:
+                output += ("ERROR: /tmp/fault.sv:235: 45: (/tmp/fault.sv:227) "
+                           "[replay.dut] [ASSERT FAILED] LcHwDebugEnSetRev1_A\n"
+                           "Time: 45 Scope: replay.dut\n")
+            return output
+        for prior, current, reset, failure in ((1, 0, False, False),
+                                               (0, 1, False, True),
+                                               (0, 0, True, False)):
+            output = trace(prior, current, reset, failure)
+            check_temporal_oracle(output, prior, current, reset, failure)
+            with self.assertRaisesRegex(ValueError, "temporal oracle"):
+                check_temporal_oracle(output, prior, current, reset, not failure)
+        with self.assertRaisesRegex(ValueError, "temporal oracle trace"):
+            check_temporal_oracle(trace(1, 0).replace("q=5", "q=x", 1), 1, 0, False, False)
+        false_green = trace(0, 1, failure=True).replace(": 45: (", ": 35: (")
+        false_green += "INFO: unrelated Time: 45 Scope: replay.dut\n"
+        with self.assertRaisesRegex(ValueError, "temporal oracle"):
+            check_temporal_oracle(false_green, 0, 1, False, True)
+        false_green = trace(0, 1, failure=True).replace("Time: 45 Scope", "Time: 35 Scope")
+        false_green += "INFO: unrelated Time: 45 Scope: replay.dut\n"
+        with self.assertRaisesRegex(ValueError, "temporal oracle"):
+            check_temporal_oracle(false_green, 0, 1, False, True)
+        inputs = {str(i): {name: ("false" if name in ("rst_ni", "strap_en_i")
+                                   else "#xa") for name in INPUTS} for i in range(1, 5)}
+        self.assertIn("#5; rst_ni = 1'b0;", replay_source(inputs, True))
 
 
 if __name__ == "__main__":
