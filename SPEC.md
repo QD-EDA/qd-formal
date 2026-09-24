@@ -127,3 +127,25 @@ to original four-state SV execution or proof of the full original SVA. The
 pinmux-to-RV_DM chip path, NDM retention, and production qualification remain
 UNKNOWN. Raw models, queries, commands, diagnostics, witnesses, source/tool
 hashes, and result are mandatory evidence artifacts.
+
+## Pinmux Rev0 companion
+
+With `--property LcHwDebugEnSetRev0_A`, the same EDAM, source, tool, reset,
+roster, model, and post-run gates apply. The typed assertion must match source
+line 217, positive clock, reset disable, `##1`, `$past(lc_hw_debug_en[0])`,
+strict On test, and pinned expression fingerprint. Four all-input bad queries
+ask whether a non-On-to-On permission rise can occur when the **prior sampled
+synchronized** lifecycle enable is not On. Reset grounding, an early-rise
+boundary, and an authorized rise cover must agree with expected solver results.
+
+The fault copy bypasses lifecycle gating but retains strap gating. A `keep`
+attribute on its lifecycle observation net preserves that signal in the
+synthesized fault model; it does not change functional logic. The solver's
+fault witness must produce the original named Rev0 Icarus failure at time 45,
+with q and lifecycle samples matching SMT, while original RTL under the same
+inputs and the authorized cover have no assertion failures. A mismatch yields
+`UNKNOWN`. This is a five-transition two-state result for the synthesized
+model, with an original-checker replay of selected traces. Four-state SVA
+equivalence, the upstream chip FPV target, and downstream RV_DM behavior remain
+`UNKNOWN`. Unlike Rev1, this slice does not include additional directed
+temporal-oracle cases beyond its solver-witness replays.
