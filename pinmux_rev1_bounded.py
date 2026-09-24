@@ -258,7 +258,7 @@ def parse_values(output):
            [found[i, "pinmux_hw_debug_en_q"] for i in range(1, 6)]
 
 
-def replay_source(inputs):
+def replay_source(inputs, reset_before_check=False):
     lines = ["module replay;", "  reg clk_i = 0, rst_ni = 0, strap_en_i = 0;",
              "  reg [3:0] lc_hw_debug_en_i = 4'ha, lc_hw_debug_clr_i = 4'ha;",
              "  reg [3:0] lc_check_byp_en_i = 4'ha, lc_escalate_en_i = 4'ha;",
@@ -284,11 +284,23 @@ def replay_source(inputs):
                         "unsupported four-bit witness")
                 value = "4'h" + value[2:]
             lines.append(f"    {name} = {value};")
-    lines += ["    #20; $finish;", "  end",
+    lines += (["    #5; rst_ni = 1'b0;", "    #15; $finish;"] if reset_before_check
+              else ["    #20; $finish;"])
+    lines += ["  end",
               '  always @(posedge clk_i) begin',
-              '    #2; $display("SAMPLE time=%0t q=%h strap=%b", $time, dut.pinmux_hw_debug_en_q, strap_en_i);',
+              '    #2; $display("SAMPLE time=%0t q=%h strap=%b rst=%b", $time, dut.pinmux_hw_debug_en_q, strap_en_i, rst_ni);',
               "  end", "endmodule"]
     return "\n".join(lines) + "\n"
+
+
+def assertion_records(output):
+    records = re.findall(
+        r"ERROR:[^\n]*?:\s*(\d+):\s*\([^\n]*\)\s*\[replay\.dut\]\s*"
+        r"\[ASSERT FAILED\]\s+([A-Za-z_][A-Za-z_0-9]*)"
+        r"\n\s*Time:\s*(\d+)\s+Scope:\s*replay\.dut", output)
+    require(output.count("ERROR:") == output.count("[ASSERT FAILED]") == len(records),
+            "unmatched Icarus assertion record")
+    return records
 
 
 def check_replay(good, control, fault, good_q, control_q, fault_q):
@@ -304,13 +316,25 @@ def check_replay(good, control, fault, good_q, control_q, fault_q):
             "original RTL replay failed")
     require("[ASSERT FAILED]" not in control and "ERROR:" not in control,
             "original RTL failed on mutant witness inputs")
-    failures = re.findall(r"\[ASSERT FAILED\] ([A-Za-z_][A-Za-z_0-9]*)", fault)
-    require(failures == [PROPERTY] and "Time: 45" in fault,
+    require(assertion_records(fault) == [("45", PROPERTY, "45")],
             "scratch fault did not trigger only original Rev1 at the aligned sample")
     require(good_samples[3][1] == "a" and good_samples[4][1] == "5"
             and good_samples[3][2] == "1"
             and fault_samples[2][1] == "a" and fault_samples[3][1] == "5"
             and fault_samples[2][2] == "0", "rise/strap alignment differs")
+
+
+def check_temporal_oracle(output, prior, current, reset, failure):
+    """Compare controlled two-state traces with the original Icarus Rev1 checker."""
+    samples = re.findall(r"SAMPLE time=(\d+) q=([a-f0-9]) strap=([01]) rst=([01])", output)
+    expected_q = "aaa5a" if reset else "aaa55"
+    require(len(samples) == 5 and [int(x[0]) for x in samples] == [7, 17, 27, 37, 47]
+            and "".join(x[1] for x in samples) == expected_q
+            and "".join(x[2] for x in samples) == "00" + str(prior) + str(current) + str(current)
+            and "".join(x[3] for x in samples) == ("11110" if reset else "11111"),
+            "temporal oracle trace differs")
+    require(assertion_records(output) == ([("45", PROPERTY, "45")] if failure else []),
+            "original Rev1 temporal oracle differs")
 
 
 def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
@@ -327,6 +351,7 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
                         "bad_queries": "all other sampler inputs free at every state",
                         "cover_and_replay": "all top-level sampler inputs fixed to recorded values at s0..s5",
                         "semantics": "Yosys read_slang synthesized two-state transition model; original SVA typed separately",
+                        "temporal_oracle": "directed two-state Icarus runs of original Rev1 checker on QD-only mutant",
                         "full_original_sva_or_chip_policy": "UNKNOWN"}}
     try:
         require(git_output(root, ["rev-parse", "HEAD"]) == PIN
@@ -445,6 +470,29 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
                                        f"replay-{variant}-run", timeout).decode()
         check_replay(outputs["good"], outputs["control"], outputs["fault"],
                      good_q, control_q, fault_q)
+        report["temporal_oracle"] = {}
+        fault_sources = [mutant if s == sampler_export else s for s in sources]
+        for name, prior, current, reset, failure in (
+                ("past_strap_pass", 1, 0, False, False),
+                ("current_strap_cannot_rescue", 0, 1, False, True),
+                ("reset_cancels_pending", 0, 0, True, False)):
+            inputs = {step: values.copy() for step, values in fault_inputs.items()}
+            inputs["3"]["strap_en_i"] = "true" if prior else "false"
+            inputs["4"]["strap_en_i"] = "true" if current else "false"
+            bench = out / f"oracle-{name}.sv"
+            bench.write_text(replay_source(inputs, reset))
+            executable = out / f"oracle-{name}.vvp"
+            capture([icarus, "-g2012", "-gassertions", "-DFPV_ON", "-s", "replay",
+                     "-o", str(executable)] + ["-I" + d for d in dirs]
+                    + list(map(str, fault_sources)) + [str(bench)],
+                    root, out, f"oracle-{name}-build", timeout)
+            output = capture([str(vvp), str(executable)], out, out,
+                             f"oracle-{name}-run", timeout).decode()
+            check_temporal_oracle(output, prior, current, reset, failure)
+            report["temporal_oracle"][name] = {
+                "prior_strap": prior, "current_strap": current,
+                "reset_before_check": reset, "named_failure": failure,
+                "observed": "matched"}
         postcheck_inputs(root, edam, out, report["edam_sha256"], inventory)
         report["postcheck"] = "stable"
         report["result"] = "bounded_model_check_ok"

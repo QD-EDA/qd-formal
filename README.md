@@ -84,4 +84,7 @@ upstream filelist and temporal-proof gaps.
 sampler's synthesized two-state model against the original typed
 `LcHwDebugEnSetRev1_A` expression. See [the bounded evidence](PINMUX_REV1_BOUNDED_EVIDENCE.md)
 for the exact EDAM input, solver queries, Icarus witness replay and limits.
+The runner also checks three directed strap/reset timing cases against the
+original Icarus Rev1 assertion; these establish observed two-state checker
+behavior for those traces only.
 This folder is licensed under Apache-2.0.
