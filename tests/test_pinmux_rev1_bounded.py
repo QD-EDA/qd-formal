@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from pinmux_rev1_bounded import (EXPR_SHA256, INPUTS, PROPERTY, REMOVED,
                                  canonical_manifest, check_replay, parse_values, projected_sources,
-                                 query_text, selected_property)
+                                 postcheck_inputs, query_text, selected_property)
 from qd_formal import sha256
 
 
@@ -158,15 +158,23 @@ class Rev1BoundedTests(unittest.TestCase):
                                                   separators=(",", ":")).encode()).hexdigest()
             with patch("pinmux_rev1_bounded.canonical_manifest", return_value=(manifest, "fixture")), \
                  patch("pinmux_rev1_bounded.EXPORT_SHA256", aggregate), \
-                 patch("pinmux_rev1_bounded.SOURCE_EQUIVALENCE", {}):
-                self.assertEqual(len(projected_sources(base, edam, base)[1]), 217)
+                 patch("pinmux_rev1_bounded.SOURCE_EQUIVALENCE", {}), \
+                patch("pinmux_rev1_bounded.git_output", side_effect=lambda _, args: "7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19" if args[0] == "rev-parse" else ""):
+                inventory = projected_sources(base, edam, base)
+                edam_digest = sha256(edam)
+                self.assertEqual(len(inventory[1]), 217)
+                postcheck_inputs(base, edam, base, edam_digest, inventory)
                 (base / "src/include0/unlisted.svh").write_text("unexpected include")
                 with self.assertRaisesRegex(ValueError, "source tree"):
-                    projected_sources(base, edam, base)
+                    postcheck_inputs(base, edam, base, edam_digest, inventory)
                 (base / "src/include0/unlisted.svh").unlink()
                 (base / names[0]).write_text("mutated dependency")
                 with self.assertRaisesRegex(ValueError, "exported source bytes"):
-                    projected_sources(base, edam, base)
+                    postcheck_inputs(base, edam, base, edam_digest, inventory)
+                (base / names[0]).write_text(names[0])
+                edam.write_text("changed EDAM")
+                with self.assertRaisesRegex(ValueError, "EDAM changed"):
+                    postcheck_inputs(base, edam, base, edam_digest, inventory)
 
     def test_exact_typed_temporal_shape(self):
         ast, body = typed_ast()

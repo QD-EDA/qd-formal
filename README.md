@@ -7,6 +7,7 @@ gate, **not a formal proof**: it checks that Icarus exits cleanly without
 diagnostics and registers the exact eight pinned checker names.
 
 ```sh
+python3 -m pip install -r requirements.txt
 python3 qd_formal.py preflight /path/to/clean/opentitan /tmp/qd-formal-secded \
   --iverilog /path/to/current-iverilog/bin/iverilog
 python3 -m unittest discover -s tests -v

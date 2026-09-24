@@ -134,6 +134,16 @@ def projected_sources(root, edam, out):
     return dirs, sources, hashes, vf, canonical_digest
 
 
+def postcheck_inputs(root, edam, out, raw_edam_sha256, inventory):
+    """Reject persistent input changes between the compiler reads and final result."""
+    require(sha256(edam) == raw_edam_sha256, "EDAM changed during run")
+    require(projected_sources(root, edam, out) == inventory,
+            "exported source inventory changed during run")
+    require(git_output(root, ["rev-parse", "HEAD"]) == PIN
+            and not git_output(root, ["status", "--porcelain", "--untracked-files=all"]),
+            "source checkout changed during run")
+
+
 def selected_property(ast):
     """Accept only the exact typed Rev1 temporal expression in the sampler instance."""
     matches, labels = [], []
@@ -323,7 +333,8 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
                 and not git_output(root, ["status", "--porcelain", "--untracked-files=all"]),
                 "source checkout is not clean at pin")
         report["edam_sha256"] = sha256(edam)
-        dirs, sources, hashes, vf, canonical_digest = projected_sources(root, edam, out)
+        inventory = projected_sources(root, edam, out)
+        dirs, sources, hashes, vf, canonical_digest = inventory
         report["canonical_edam_sha256"] = canonical_digest
         report["source_sha256"] = hashes
         for name, tool, version_flag in (("slang", slang, "--version"), ("yosys", yosys, "-V"),
@@ -434,6 +445,8 @@ def check(root, edam, out, slang, yosys, z3, iverilog, timeout=120):
                                        f"replay-{variant}-run", timeout).decode()
         check_replay(outputs["good"], outputs["control"], outputs["fault"],
                      good_q, control_q, fault_q)
+        postcheck_inputs(root, edam, out, report["edam_sha256"], inventory)
+        report["postcheck"] = "stable"
         report["result"] = "bounded_model_check_ok"
     except (OSError, ValueError, KeyError, TypeError, IndexError, AssertionError) as error:
         report["failure_reasons"].append(str(error))

@@ -20,12 +20,18 @@ EDAM value. The generated CSR core path and bytes are pinned separately;
 duplicate YAML keys, path escapes, missing files, or any other manifest edit
 yield `UNKNOWN`. `result.json` records both the raw EDAM hash and canonical
 digest.
+Before success, the runner rechecks the raw EDAM, canonical manifest, full
+exported file tree and hashes, generated CSR core, and clean pinned checkout.
+A persistent change yields `UNKNOWN` with raw artifacts preserved. A file
+changed and restored entirely between these checks is not detected; an
+immutable input snapshot is a future qualification step.
 
 Run with a fresh evidence directory and the generated EDAM described in
 [the frontend status](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md):
 
 ```sh
-/path/to/python-with-PyYAML pinmux_rev1_bounded.py \
+python3 -m pip install -r requirements.txt
+python3 pinmux_rev1_bounded.py \
   /path/to/clean/opentitan /path/to/pinmux_chip_fpv.eda.yml /tmp/qd-rev1 \
   --slang /path/to/slang --yosys /path/to/yosys \
   --z3 /path/to/z3 --iverilog /path/to/iverilog
