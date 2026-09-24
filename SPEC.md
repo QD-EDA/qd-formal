@@ -83,11 +83,14 @@ retained in the external evidence directory. Unsupported output is `UNKNOWN`.
 ## Pinmux Rev1 bounded model check
 
 `pinmux_rev1_bounded.py` requires the clean pinned OpenTitan checkout and the
-exact FuseSoC `pinmux_chip_fpv` EDAM/export bytes. It excludes the broken chip
+canonical FuseSoC `pinmux_chip_fpv` EDAM plus exact exported source bytes.
+Only verified `core_file` paths to files inside the pinned checkout may
+relocate. It excludes the broken chip
 FPV testbench and three unused VIP/bind/CSR files, leaving 217 compilation
 units for a selected `pinmux_strap_sampling` top. The sampler and four
-critical dependencies must also match their original source bytes. PyYAML is
-needed only to read that EDAM; the unit tests use the Python standard library.
+critical dependencies must also match their original source bytes. The EDAM
+reader and its tests use pinned PyYAML 6.0.3. The runner rechecks the EDAM,
+export, generated core, and clean checkout after the proof and replay.
 
 The original Rev1 SVA must appear in slang's typed AST at the pinned source
 line, role, clock, reset, operands, `##1` delay, `$past` call, and expression
