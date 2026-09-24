@@ -78,4 +78,9 @@ The inventories need Python 3's standard library and their chosen compiler
 The [Earlgrey pinmux sampler status](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md)
 records a separate default-debug-path frontend probe and its unresolved
 upstream filelist and temporal-proof gaps.
+
+`pinmux_rev1_bounded.py` checks five reset-grounded transitions of the pinned
+sampler's synthesized two-state model against the original typed
+`LcHwDebugEnSetRev1_A` expression. See [the bounded evidence](PINMUX_REV1_BOUNDED_EVIDENCE.md)
+for the exact EDAM input, solver queries, Icarus witness replay and limits.
 This folder is licensed under Apache-2.0.
