@@ -1,101 +1,32 @@
-# QD Formal
+# qd-formal
 
-QD Formal combines a fail-closed Icarus frontend inventory, a separate typed
-slang property inventory, and one bounded SECDED check on the unchanged
-OpenTitan `prim_secded_22_16_fpv` closure. The Icarus inventory is a compiler
-gate, **not a formal proof**: it checks that Icarus exits cleanly without
-diagnostics and registers the exact eight pinned checker names.
+Quick and dirty **bounded formal checks** on pinned OpenTitan RTL. It is deliberately conservative: anything it cannot establish reports `UNKNOWN` and exits non-zero.
+
+| | |
+|---|---|
+| Language | Python 3 (+ Icarus Verilog, slang, Yosys, Z3 as external tools) |
+| Pinned target | OpenTitan commit `7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19`, `prim_secded_22_16_fpv` |
+| Status | Active prototype (Sep 2026) |
+| License | Apache-2.0 |
+
+## Checks
+
+| Step | Tool | Result name | What it is (and is not) |
+|---|---|---|---|
+| Frontend inventory | `qd_formal.py preflight` | `frontend_inventory_ok` | Icarus compiles the checker cleanly and registers the exact 8 pinned names. A compiler gate, **not a proof** |
+| Semantic inventory | `slang_inventory.py` | `semantic_frontend_inventory_ok` | Typed slang AST: 1 assumption, 7 assertions, clock, disable condition, expression fingerprints. No solver |
+| One-sample SECDED check | `secded_one_sample.py` | `one_sample_check_ok` | Z3 over one two-state posedge sample of encoder, decoder and testbench. Bounded, **not** an unbounded or four-state SVA proof |
+
+## Run
 
 ```sh
 python3 -m pip install -r requirements.txt
-python3 qd_formal.py preflight /path/to/clean/opentitan /tmp/qd-formal-secded \
-  --iverilog /path/to/current-iverilog/bin/iverilog
+python3 qd_formal.py preflight /path/to/clean/opentitan /tmp/qd-formal-secded --iverilog /path/to/iverilog
 python3 -m unittest discover -s tests -v
 ```
 
-For a separate semantic frontend inventory, run slang 11.0.448 on the same
-clean checkout:
+Each run writes `result.json`, raw tool output and source/tool hashes to a fresh evidence directory. Wrong pin, dirty checkout, timeout or roster mismatch gives `UNKNOWN`.
 
-```sh
-python3 slang_inventory.py /path/to/clean/opentitan /tmp/qd-formal-slang \
-  --slang /path/to/slang
-```
+## More
 
-This records the raw elaborated AST, diagnostics, command, and hashes. Its
-`semantic_frontend_inventory_ok` result requires the exact eight names, one
-assumption and seven assertions, the bound instance, source locations, clock,
-disable condition, and pinned expression fingerprints. It is a frontend
-inventory only: it does not run a solver or prove any property. An unsupported
-AST shape or mismatch yields `UNKNOWN`.
-
-The first bounded checker uses both inventories on the same clean pin, lowers
-`MaxTwoErrors_M` and `SyndromeCheckReverse_A` from the typed AST, and asks Z3
-about one two-state posedge sample of the unchanged encoder, decoder, and testbench:
-
-```sh
-python3 secded_one_sample.py /path/to/clean/opentitan /tmp/qd-secded-proof \
-  --iverilog /path/to/current-iverilog/bin/iverilog --slang /path/to/slang \
-  --yosys /path/to/yosys --z3 /path/to/z3
-python3 secded_one_sample.py /path/to/clean/opentitan /tmp/qd-secded-fault \
-  --iverilog /path/to/current-iverilog/bin/iverilog --slang /path/to/slang \
-  --yosys /path/to/yosys --z3 /path/to/z3 --scratch-fault
-```
-
-Use fresh evidence directories. The second command mutates only a decoder copy
-inside its evidence directory, obtains a solver witness, and replays that exact
-sample with Icarus and the original bound checker. `one_sample_check_ok` is a
-bounded two-state result, not an unbounded proof or a four-state SVA proof.
-See [ONE_SAMPLE_EVIDENCE.md](docs/ONE_SAMPLE_EVIDENCE.md) for the actual pinned run.
-
-The checkout must be clean at OpenTitan commit
-`7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19`. The runner writes `result.json`,
-the exact stub, raw stdout/stderr, and source/tool hashes to the evidence
-directory. A successful result is named `frontend_inventory_ok`; every
-diagnostic, nonzero exit, wrong pin, dirty checkout, timeout, or checker roster
-mismatch yields `UNKNOWN` and a nonzero CLI exit. A roster match checks names
-and multiplicity only; the Icarus stub does not establish assert/assume/cover
-roles or property semantics.
-
-The source hashes include all six compiler translation units and the three
-active include files (`prim_assert_standard_macros.svh`,
-`prim_assert_sec_cm.svh`, and `prim_flop_macros.sv`). Only the six translation
-units appear as source arguments; the macros are reached through the pinned
-include path.
-
-The evidence records the `iverilog -V` output and executable hash. It also names
-Icarus source commit `6fd804a39e803152bd39a3ee4c96b15d30532001` as the intended
-toolchain pin; that source revision is not inferred from or authenticated by the
-binary hash.
-
-The pilot closure uses the original OpenTitan files and real assertion macros,
-with `FPV_ON`; it does not modify RTL or DV. Limitations and the artifact
-contract are in [SPEC.md](SPEC.md); planned increments are in
-[ROADMAP.md](docs/ROADMAP.md). The [formal gap audit](docs/FORMAL_GAP_AUDIT.md) and
-[pinned pilot evidence](docs/PILOT_EVIDENCE.md) record what was actually run.
-The inventories need Python 3's standard library and their chosen compiler
-(Icarus Verilog or slang). The one-sample checker also needs Yosys with
-`read_slang`, Z3, and the matching `vvp` runtime for scratch witness replay.
-
-The [Earlgrey pinmux sampler status](docs/PINMUX_SAMPLER_FRONTEND_EVIDENCE.md)
-records a separate default-debug-path frontend probe and its unresolved
-upstream filelist and temporal-proof gaps.
-
-`pinmux_rev1_bounded.py` checks five reset-grounded transitions of the pinned
-sampler's synthesized two-state model against the original typed
-`LcHwDebugEnSetRev1_A` expression. See [the bounded evidence](docs/PINMUX_REV1_BOUNDED_EVIDENCE.md)
-for the exact EDAM input, solver queries, Icarus witness replay and limits.
-The runner also checks three directed strap/reset timing cases against the
-original Icarus Rev1 assertion; these establish observed two-state checker
-behavior for those traces only.
-
-The same pinned runner accepts `--property LcHwDebugEnSetRev0_A` for the
-companion lifecycle authorization check. It asks whether retained debug
-permission can rise when the prior synchronized lifecycle enable is not On.
-The QD-only fault bypasses lifecycle gating while retaining strap gating;
-the exact solver witness is replayed through the original Icarus Rev0 checker.
-See [PINMUX_REV0_BOUNDED_EVIDENCE.md](docs/PINMUX_REV0_BOUNDED_EVIDENCE.md).
-This folder is licensed under Apache-2.0.
-
-## Status
-
-Active prototype, Sep 2026. Evidence and roadmap notes live in `docs/`.
+[docs/usage.md](docs/usage.md) has the full commands and limits; evidence notes and the roadmap are in `docs/`; [SPEC.md](SPEC.md) is the contract.
