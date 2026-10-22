@@ -45,7 +45,7 @@ Use fresh evidence directories. The second command mutates only a decoder copy
 inside its evidence directory, obtains a solver witness, and replays that exact
 sample with Icarus and the original bound checker. `one_sample_check_ok` is a
 bounded two-state result, not an unbounded proof or a four-state SVA proof.
-See [ONE_SAMPLE_EVIDENCE.md](ONE_SAMPLE_EVIDENCE.md) for the actual pinned run.
+See [ONE_SAMPLE_EVIDENCE.md](docs/ONE_SAMPLE_EVIDENCE.md) for the actual pinned run.
 
 The checkout must be clean at OpenTitan commit
 `7a3ad34b6d483f4d1d69ac670ddb1c45f1172e19`. The runner writes `result.json`,
@@ -70,19 +70,19 @@ binary hash.
 The pilot closure uses the original OpenTitan files and real assertion macros,
 with `FPV_ON`; it does not modify RTL or DV. Limitations and the artifact
 contract are in [SPEC.md](SPEC.md); planned increments are in
-[ROADMAP.md](ROADMAP.md). The [formal gap audit](FORMAL_GAP_AUDIT.md) and
-[pinned pilot evidence](PILOT_EVIDENCE.md) record what was actually run.
+[ROADMAP.md](docs/ROADMAP.md). The [formal gap audit](docs/FORMAL_GAP_AUDIT.md) and
+[pinned pilot evidence](docs/PILOT_EVIDENCE.md) record what was actually run.
 The inventories need Python 3's standard library and their chosen compiler
 (Icarus Verilog or slang). The one-sample checker also needs Yosys with
 `read_slang`, Z3, and the matching `vvp` runtime for scratch witness replay.
 
-The [Earlgrey pinmux sampler status](PINMUX_SAMPLER_FRONTEND_EVIDENCE.md)
+The [Earlgrey pinmux sampler status](docs/PINMUX_SAMPLER_FRONTEND_EVIDENCE.md)
 records a separate default-debug-path frontend probe and its unresolved
 upstream filelist and temporal-proof gaps.
 
 `pinmux_rev1_bounded.py` checks five reset-grounded transitions of the pinned
 sampler's synthesized two-state model against the original typed
-`LcHwDebugEnSetRev1_A` expression. See [the bounded evidence](PINMUX_REV1_BOUNDED_EVIDENCE.md)
+`LcHwDebugEnSetRev1_A` expression. See [the bounded evidence](docs/PINMUX_REV1_BOUNDED_EVIDENCE.md)
 for the exact EDAM input, solver queries, Icarus witness replay and limits.
 The runner also checks three directed strap/reset timing cases against the
 original Icarus Rev1 assertion; these establish observed two-state checker
@@ -93,5 +93,9 @@ companion lifecycle authorization check. It asks whether retained debug
 permission can rise when the prior synchronized lifecycle enable is not On.
 The QD-only fault bypasses lifecycle gating while retaining strap gating;
 the exact solver witness is replayed through the original Icarus Rev0 checker.
-See [PINMUX_REV0_BOUNDED_EVIDENCE.md](PINMUX_REV0_BOUNDED_EVIDENCE.md).
+See [PINMUX_REV0_BOUNDED_EVIDENCE.md](docs/PINMUX_REV0_BOUNDED_EVIDENCE.md).
 This folder is licensed under Apache-2.0.
+
+## Status
+
+Active prototype, Sep 2026. Evidence and roadmap notes live in `docs/`.
